@@ -1,6 +1,6 @@
 [project]
 name = "dbx-flame"
-version = "0.0.0"
+version = "0.0.1"
 description = "Configuration-driven Databricks data engineering framework (medallion architecture)"
 readme = "README.md"
 license = "Apache-2.0"
