@@ -1,0 +1,163 @@
+"""Tests for the composition root: dispatch, the batch chain, and the drivers."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from dbx_flame.context.config import (
+    IncrementStrategy,
+    Origin,
+    OutputConfig,
+    SourceConfig,
+    TaskConfig,
+    TypingConfig,
+    Verb,
+)
+from dbx_flame.context.context import Context, RunIdentity
+from dbx_flame.entrypoints.pipeline import prepare, run_pipeline
+from dbx_flame.output.registry import WRITER_BY_VERB
+from dbx_flame.pipelines.registry import SOURCES
+
+RUN = RunIdentity("wf", "wfrun", "task", "taskrun")
+
+
+def _ctx(spark, origin=Origin.CSV, **source_overrides):
+    source = dict(origin=origin)
+    if origin == Origin.DELTA:
+        source.update(schema_name="bronze", table="PEOPLE")
+    else:
+        source.update(path="/Volumes/in/", directory="people")
+    source.update(source_overrides)
+    config = TaskConfig(
+        catalog="cro",
+        env="dev_01",
+        metadata_path="/Volumes/meta/",
+        source=SourceConfig(**source),
+        typing=TypingConfig(),
+        output=OutputConfig(verb=Verb.APPEND, schema_name="bronze", table="PEOPLE"),
+    )
+    return Context(
+        config=config,
+        spark=spark,
+        run=RUN,
+        logger=MagicMock(),
+        catalog="cro_dev_01",
+        source_table="`db`.`PEOPLE`",
+        deletes_table=None,
+        target_table="`db`.`PEOPLE`",
+        inbound_glob="/Volumes/in/people/*.csv",
+        checkpoint_location="/tmp/cp/",
+        schema_hints_location="/tmp/hints/",
+        increment_strategy=IncrementStrategy.CHECKPOINT,
+    )
+
+
+def test_every_origin_has_a_reader():
+    assert set(SOURCES) == set(Origin)
+
+
+def test_every_verb_has_a_writer():
+    assert set(WRITER_BY_VERB) == set(Verb)
+
+
+def test_a_file_origin_gets_provenance(spark, tmp_path):
+    """run_pipeline attaches it to the source, so prepare() never touches _metadata."""
+    fixture = tmp_path / "PEOPLE_20240115103000.csv"
+    fixture.write_text("agent id,Full Name\n1,alice\n", encoding="utf-8")
+    raw = spark.read.option("header", "true").csv(str(fixture))
+
+    ctx = _ctx(spark)
+    writer = MagicMock()
+
+    with patch.dict(SOURCES, {Origin.CSV: lambda: MagicMock(read=lambda _c: raw)}):
+        with patch.dict(WRITER_BY_VERB, {Verb.APPEND: lambda: writer}):
+            run_pipeline(ctx)
+
+    result = writer.write.call_args.args[0]
+    row = result.collect()[0]
+    assert result.columns == [
+        "AGENT_ID",
+        "FULL_NAME",
+        "__BRONZE_LAST_MODIFIED_DT",
+        "__FILEPATH",
+        "__EXPORT_DATE",
+    ]
+    assert row["__EXPORT_DATE"] == datetime(2024, 1, 15, 10, 30)
+    assert row["AGENT_ID"] == "1"
+
+
+def test_provenance_is_attached_before_the_stream_not_inside_it(spark, tmp_path):
+    """_metadata resolves on the file source only; a foreachBatch micro-batch has lost it.
+
+    Adding it inside prepare() passed every local batch test and then failed on the
+    first real Auto Loader run, so this pins it to the source DataFrame instead.
+    """
+    fixture = tmp_path / "PEOPLE_20240115103000.csv"
+    fixture.write_text("id" + chr(10) + "1" + chr(10), encoding="utf-8")
+    raw = spark.read.option("header", "true").csv(str(fixture))
+
+    assert "__FILEPATH" not in prepare(raw, _ctx(spark)).columns
+
+
+def test_a_delta_origin_keeps_the_provenance_it_arrived_with(spark):
+    """Re-deriving it would need _metadata.file_path, which a table read does not have."""
+    df = spark.createDataFrame(
+        [("1", "alice", datetime(2024, 1, 15))],
+        "ID string, NAME string, __EXPORT_DATE timestamp",
+    )
+
+    result = prepare(df, _ctx(spark, origin=Origin.DELTA))
+
+    assert result.columns == ["ID", "NAME", "__EXPORT_DATE"]
+    assert result.collect()[0]["__EXPORT_DATE"] == datetime(2024, 1, 15)
+
+
+def test_rename_patterns_run_after_sanitization(spark):
+    df = spark.createDataFrame([("1",)], "`agent id__v` string")
+
+    result = prepare(df, _ctx(spark, origin=Origin.DELTA, rename_patterns=["__[Vv]$="]))
+
+    assert result.columns == ["AGENT_ID"]
+
+
+def test_a_batch_source_writes_directly(spark):
+    ctx = _ctx(spark, origin=Origin.DELTA)
+    df = spark.createDataFrame([("1",)], "ID string")
+    writer = MagicMock()
+
+    with patch.dict(SOURCES, {Origin.DELTA: lambda: MagicMock(read=lambda _ctx: df)}):
+        with patch.dict(WRITER_BY_VERB, {Verb.APPEND: lambda: writer}):
+            run_pipeline(ctx)
+
+    writer.write.assert_called_once()
+    assert writer.write.call_args.args[0].columns == ["ID"]
+
+
+def test_a_streaming_source_is_driven_and_awaited():
+    """Returning without awaiting would let a task report success before the write."""
+    ctx = MagicMock()
+    # A delta source, so the driver is exercised without provenance wrapping the mock.
+    ctx.config.source.origin = Origin.DELTA
+    ctx.config.output.verb = Verb.APPEND
+    streaming = MagicMock()
+    streaming.isStreaming = True
+
+    with patch.dict(SOURCES, {Origin.DELTA: lambda: MagicMock(read=lambda _c: streaming)}):
+        with patch.dict(WRITER_BY_VERB, {Verb.APPEND: lambda: MagicMock()}):
+            run_pipeline(ctx)
+
+    chain = streaming.writeStream.foreachBatch.return_value.option.return_value.trigger
+    chain.assert_called_once_with(availableNow=True)
+    chain.return_value.start.return_value.awaitTermination.assert_called_once()
+
+
+@pytest.mark.parametrize("origin", [Origin.SAS])
+def test_unimplemented_origins_fail_at_read_not_at_dispatch(origin):
+    """The config is valid; the reader simply is not written yet."""
+    assert origin in SOURCES
+
+    with pytest.raises(NotImplementedError, match="P6"):
+        SOURCES[origin]().read(MagicMock())

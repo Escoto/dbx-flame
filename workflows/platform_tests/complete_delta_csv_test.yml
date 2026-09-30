@@ -1,0 +1,171 @@
+# End-to-end platform test: CSV → Bronze (APPEND) → Silver (COMPLETE_DELTA).
+#
+# COMPLETE_DELTA replays a backlog instead of collapsing it. Round 1 lands three
+# exports in bronze before silver runs once, and silver comes out holding every
+# version of A — v1 closed by v2, v2 closed by v3 — where SCD2 given the identical
+# input would have deduplicated down to v3 and lost the chain.
+#
+# The event time is the source's own CHANGE_TS, a string in dd-MM-yyyy HH:mm:ss.
+# Day-first and every day past the 12th, so a pattern read the other way round
+# cannot parse into a plausible date: it lands NULL and the windows fail.
+#
+# Increments are watermark-based, not checkpoint-based. Silver reads whatever in
+# bronze is newer than the newest __EXPORT_DATE it already holds, which is why round
+# 2 picks up only the fourth export rather than replaying the backlog again. The
+# snapshots themselves are cut on __EXPORT_DATE, which Bronze parses from the iso stamp
+# its source.snapshot_time_pattern declares.
+
+base: &base ${workspace.file_path}/platform_tests/complete_delta_csv_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/complete_delta_csv_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/complete_delta_csv_test/1_generate_data.py
+bronze_check: &bronze_check ${workspace.file_path}/platform_tests/complete_delta_csv_test/2_validate_bronze.py
+silver_check: &silver_check ${workspace.file_path}/platform_tests/complete_delta_csv_test/3_validate_silver.py
+watermark_check: &watermark_check ${workspace.file_path}/platform_tests/complete_delta_csv_test/4_validate_silver_watermark.py
+
+catalog: &catalog testing
+bronze_table: &bronze_table COMPLETE_DELTA_CSV_BRONZE_1
+silver_table: &silver_table COMPLETE_DELTA_CSV_SILVER_1
+schema: &schema functional_testing
+
+shared_params: &shared_params
+  catalog: *catalog
+  env: "${bundle.target}"
+  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  schema_evolution: fail_on_new_columns
+
+bronze_params: &bronze_params
+  <<: *shared_params
+  source.origin: csv
+  source.snapshot_time_pattern: iso
+  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.directory: COMPLETE_DELTA_CSV_SOURCE_1
+  output.verb: append
+  output.schema_name: *schema
+  output.table: *bronze_table
+
+silver_params: &silver_params
+  <<: *shared_params
+  source.origin: delta
+  source.schema_name: *schema
+  source.table: *bronze_table
+  # How to read the snapshot timestamp out of __FILEPATH: 14 digits, yyyyMMddHHmmss.
+  output.verb: complete_delta
+  output.schema_name: *schema
+  output.table: *silver_table
+  output.keys: ID
+  # The source's own event time, as a string bronze never typed.
+  output.event_time.column: CHANGE_TS
+  output.event_time.format: dd-MM-yyyy HH:mm:ss
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    complete_delta_csv_test:
+      name: complete_delta_csv_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster complete_delta_csv_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m5d.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base]
+
+        # Three exports at once — the backlog silver has to replay.
+        - task_key: &generate_1 generate_data_1
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, "1"]
+
+        - task_key: &bronze_1 inbound_to_bronze_1
+          depends_on: [{task_key: *generate_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_check_1 bronze_validation_1
+          depends_on: [{task_key: *bronze_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base]
+
+        - task_key: &silver_1 bronze_to_silver_1
+          depends_on: [{task_key: *bronze_check_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: &silver_check_1 silver_validation_1
+          depends_on: [{task_key: *silver_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base]
+
+        # Second round: one later export, to prove the watermark cuts where silver ends.
+        - task_key: &generate_2 generate_data_2
+          depends_on: [{task_key: *silver_check_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, "2"]
+
+        - task_key: &bronze_2 inbound_to_bronze_2
+          depends_on: [{task_key: *generate_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &silver_2 bronze_to_silver_2
+          depends_on: [{task_key: *bronze_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: silver_validation_2
+          depends_on: [{task_key: *silver_2}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *watermark_check
+            parameters: [*base]

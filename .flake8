@@ -1,0 +1,4 @@
+# flake8 does not read pyproject.toml, so its config lives here.
+[flake8]
+max-line-length = 125
+extend-exclude = docs,.venv,build,dist,.pytest_cache

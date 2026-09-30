@@ -1,0 +1,67 @@
+name: RELEASE
+
+permissions: write-all
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release-version:
+    runs-on: ubuntu-latest
+    if: github.actor == 'Escoto'
+    env:
+      GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'poetry'
+
+      - name: Bump version
+        id: bump
+        run: |
+          poetry version ${{ inputs.release_type }}
+          version=$(poetry version -s)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Sync __init__.py version
+        run: |
+          sed -i "s/__version__ = \".*\"/__version__ = \"${{ steps.bump.outputs.version }}\"/" src/dbx_flame/__init__.py
+
+      - name: Commit, tag, and push to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml src/dbx_flame/__init__.py
+          git commit -m "chore: release v${{ steps.bump.outputs.version }}"
+          git push origin --delete "v${{ steps.bump.outputs.version }}" || true
+          git tag -d "v${{ steps.bump.outputs.version }}" || true
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push origin HEAD:main --tags
+
+      - name: Build wheel
+        run: poetry build
+
+      - name: Create GitHub release
+        run: |
+          gh release delete "v${{ steps.bump.outputs.version }}" -y || true
+          gh release create "v${{ steps.bump.outputs.version }}" \
+            --title "v${{ steps.bump.outputs.version }}" \
+            --generate-notes \
+            dist/*.whl dist/*.tar.gz

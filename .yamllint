@@ -1,0 +1,19 @@
+# yamllint defaults assume hand-written 80-column YAML. These are Databricks Asset
+# Bundle files: long substitution paths and flat dotted parameters are normal, and
+# wrapping them would hurt rather than help. Long lines here are script-path anchors built from ${workspace.file_path}.
+extends: default
+
+rules:
+  line-length:
+    max: 140
+    level: error
+  # Asset Bundle files are fragments assembled by the CLI, not standalone documents.
+  document-start: disable
+  # Comment blocks in the platform tests explain fixtures; indentation varies by design.
+  comments-indentation: disable
+  truthy:
+    check-keys: false
+
+ignore: |
+  .venv/
+  dist/

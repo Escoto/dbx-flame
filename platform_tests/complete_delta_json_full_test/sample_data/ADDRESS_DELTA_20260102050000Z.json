@@ -1,0 +1,46 @@
+{
+  "metadata": {
+    "object_type": "MDM_DELTA_EXPORT",
+    "object_description": "Business Object - ADDRESS for Databricks...",
+    "object_id": 17,
+    "export_date": "20260102050000Z",
+    "export_timezone": "UTC",
+    "object_count": 2
+  },
+  "data": [
+    {
+      "uri": "https://r.testing.uri/000/0",
+      "related_cro": [
+        "0-6YSHTL9 [IQVIA]"
+      ],
+      "status": "INACTIVE",
+      "street_address": "12th American Road.",
+      "postal_code": "0000",
+      "city": "City",
+      "region": "Western Australia",
+      "country": "Australia"
+    },
+    {
+      "uri": "https://r.testing.com/333/3",
+      "related_cro": [
+        "0-IN6SH2 [IQVIA]"
+      ],
+      "status": "ACTIVE",
+      "street_address": "No.333 Zhuodaoquan, Hongshan",
+      "postal_code": "111111",
+      "city": "Wuhan",
+      "region": "Hubei",
+      "country": "China"
+    },
+    {
+      "uri": "https://r.testing.com/444/4",
+      "status": "ACTIVE",
+      "street_address": "Emiliano Zapata",
+      "postal_code": "21240",
+      "city": "Mexicali",
+      "region": "Baja California",
+      "country": "Mexico",
+      "Type": "TEST"
+    }
+  ]
+}

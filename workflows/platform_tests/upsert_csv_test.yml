@@ -1,0 +1,166 @@
+# End-to-end platform test: CSV → Bronze (APPEND) → Silver (UPSERT).
+#
+# UPSERT is SCD Type 1: one row per key, no history. The second round is what proves
+# it — the same keys arrive again under new export timestamps and silver refreshes
+# those rows in place, staying at five rows instead of accumulating versions.
+#
+# Both loads are checkpoint-based.
+# Bronze: streams the inbound files through Auto Loader.
+# Silver: streams bronze itself, which is only sound because bronze is
+#         APPEND-written and so append-only.
+#
+# A source that gets rewritten would break the stream permanently,
+# and UPSERT declares no other increment strategy to fall back on.
+
+base: &base ${workspace.file_path}/platform_tests/upsert_csv_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/upsert_csv_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/upsert_csv_test/1_generate_data.py
+bronze_check: &bronze_check ${workspace.file_path}/platform_tests/upsert_csv_test/2_validate_bronze.py
+silver_check: &silver_check ${workspace.file_path}/platform_tests/upsert_csv_test/3_validate_silver.py
+reload_check: &reload_check ${workspace.file_path}/platform_tests/upsert_csv_test/4_validate_silver_reload.py
+
+catalog: &catalog testing
+bronze_table: &bronze_table UPSERT_CSV_BRONZE_1
+silver_table: &silver_table UPSERT_CSV_SILVER_1
+schema: &schema functional_testing
+
+shared_params: &shared_params
+  catalog: *catalog
+  env: "${bundle.target}"
+  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  schema_evolution: fail_on_new_columns
+
+bronze_params: &bronze_params
+  <<: *shared_params
+  source.origin: csv
+  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.directory: UPSERT_CSV_SOURCE_1
+  output.verb: append
+  output.schema_name: *schema
+  output.table: *bronze_table
+
+silver_params: &silver_params
+  <<: *shared_params
+  source.origin: delta
+  source.schema_name: *schema
+  source.table: *bronze_table
+  output.verb: upsert
+  output.schema_name: *schema
+  output.table: *silver_table
+  output.keys: ID
+  output.event_time.column: __EXPORT_DATE
+  output.dedup.enabled: "true"
+  output.dedup.columns: ID
+  output.dedup.order_by: __EXPORT_DATE
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    upsert_csv_test:
+      name: upsert_csv_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster upsert_csv_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m5d.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base]
+
+        - task_key: &generate_1 generate_data_1
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base]
+
+        - task_key: &bronze_1 inbound_to_bronze_1
+          depends_on: [{task_key: *generate_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_check_1 bronze_validation_1
+          depends_on: [{task_key: *bronze_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base]
+
+        - task_key: &silver_1 bronze_to_silver_1
+          depends_on: [{task_key: *bronze_check_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: &silver_check_1 silver_validation_1
+          depends_on: [{task_key: *silver_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base]
+
+        # Second round: the same two exports arrive again under new timestamps.
+        - task_key: &generate_2 generate_data_2
+          depends_on: [{task_key: *silver_check_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base]
+
+        - task_key: &bronze_2 inbound_to_bronze_2
+          depends_on: [{task_key: *generate_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &silver_2 bronze_to_silver_2
+          depends_on: [{task_key: *bronze_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: silver_validation_2
+          depends_on: [{task_key: *silver_2}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *reload_check
+            parameters: [*base]

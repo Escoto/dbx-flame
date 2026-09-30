@@ -1,0 +1,45 @@
+# Runs every platform test.
+#
+# The tasks carry no depends_on, so they run in parallel. Safe because each
+# test cleans only its own source directory and metadata.
+
+resources:
+  jobs:
+    integration_test_suite:
+      name: integration_test_suite
+      tasks:
+        - task_key: complete_delta_csv_test
+          run_job_task:
+            job_id: ${resources.jobs.complete_delta_csv_test.id}
+
+        - task_key: upsert_csv_test
+          run_job_task:
+            job_id: ${resources.jobs.upsert_csv_test.id}
+
+        - task_key: complete_delta_csv_typecasting_delta_test
+          run_job_task:
+            job_id: ${resources.jobs.complete_delta_csv_typecasting_delta_test.id}
+
+        - task_key: complete_delta_csv_typecasting_full_test
+          run_job_task:
+            job_id: ${resources.jobs.complete_delta_csv_typecasting_full_test.id}
+
+        - task_key: complete_delta_json_full_test
+          run_job_task:
+            job_id: ${resources.jobs.complete_delta_json_full_test.id}
+
+        - task_key: complete_delta_json_anchor_test
+          run_job_task:
+            job_id: ${resources.jobs.complete_delta_json_anchor_test.id}
+
+        - task_key: full_csv_long_backlog_test
+          run_job_task:
+            job_id: ${resources.jobs.full_csv_long_backlog_test.id}
+
+        - task_key: scd2_csv_test
+          run_job_task:
+            job_id: ${resources.jobs.scd2_csv_test.id}
+
+        - task_key: scd2_csv_long_backlog_test
+          run_job_task:
+            job_id: ${resources.jobs.scd2_csv_long_backlog_test.id}

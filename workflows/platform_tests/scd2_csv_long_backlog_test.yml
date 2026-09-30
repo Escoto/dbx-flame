@@ -1,0 +1,123 @@
+# End-to-end platform test: CSV → Bronze (APPEND) → Silver (SCD2).
+#
+# GH #22: SCD2 takes changes, never full snapshots. All three exports are landed in
+# inbound before the pipeline ever runs, so Auto Loader's availableNow trigger hands
+# SCD2's first silver run all three as one batch. Every key must end with exactly one
+# current row at its newest version. KEYSEQ 15 and 20 are absent from export 3, and
+# absence is not deletion under SCD2: they stay current at their export-2 version.
+#
+# One round is the point here, unlike scd2_csv_test's two: the case only appears
+# when more than one export lands in a single micro-batch.
+
+base: &base ${workspace.file_path}/platform_tests/scd2_long_backlog_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/scd2_long_backlog_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/scd2_long_backlog_test/1_generate_data.py
+bronze_check_script: &bronze_check_script ${workspace.file_path}/platform_tests/scd2_long_backlog_test/2_validate_bronze.py
+silver_check_script: &silver_check_script ${workspace.file_path}/platform_tests/scd2_long_backlog_test/3_validate_silver.py
+
+catalog: &catalog testing
+bronze_table: &bronze_table STUDY_MILESTONE_SCD2_BACKLOG_BRONZE_1
+silver_table: &silver_table STUDY_MILESTONE_SCD2_BACKLOG_SILVER_1
+schema: &schema functional_testing
+
+shared_params: &shared_params
+  catalog: *catalog
+  env: "${bundle.target}"
+  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  schema_evolution: fail_on_new_columns
+
+bronze_params: &bronze_params
+  <<: *shared_params
+  source.origin: csv
+  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.directory: STUDY_MILESTONE_SCD2_BACKLOG_SOURCE_1
+  output.verb: append
+  output.schema_name: *schema
+  output.table: *bronze_table
+
+silver_params: &silver_params
+  <<: *shared_params
+  source.origin: delta
+  source.schema_name: *schema
+  source.table: *bronze_table
+  output.verb: scd2
+  output.schema_name: *schema
+  output.table: *silver_table
+  output.keys: KEYSEQ
+  output.event_time.column: REFRESHDATE
+  output.event_time.format: MM/dd/yyyy HH:mm:ss
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    scd2_csv_long_backlog_test:
+      name: scd2_csv_long_backlog_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster scd2_long_backlog_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m5d.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base]
+
+        - task_key: &generate generate_data
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base]
+
+        - task_key: &bronze inbound_to_bronze
+          depends_on: [{task_key: *generate}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_validation bronze_validation
+          depends_on: [{task_key: *bronze}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check_script
+            parameters: [*base]
+
+        - task_key: &silver bronze_to_silver
+          depends_on: [{task_key: *bronze_validation}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: silver_validation
+          depends_on: [{task_key: *silver}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check_script
+            parameters: [*base]

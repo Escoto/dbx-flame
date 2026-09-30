@@ -1,0 +1,192 @@
+# End-to-end platform test: JSON (full + delta feeds) → two Bronze → one Silver.
+#
+# This is the production shape. A vendor sends the same business object as two
+# feeds: a full export that re-asserts the whole dataset, and a delta export carrying
+# only what moved. They are tracked as separate inbound directories into separate
+# bronze tables, and only ever meet in silver.
+#
+# The full load runs first, and that ordering is the contract. It writes under
+# snapshot_scope=full, which expires every current row before re-asserting the
+# snapshot; the delta feed then merges onto that baseline. Running them the other way
+# round would expire what the delta feed had just established.
+#
+# The records live under a "data" array inside a JSON envelope, so bronze is
+# row-per-item rather than row-per-file. record_envelope does that unwrapping:
+# source.envelope_fields names the keys lifted into their own columns, and the whole
+# item stays under DATA as JSON text. Vendors reshape payloads without warning, and
+# what this proves is that two feeds inferring different payload schemas still land in
+# one silver table whose own columns stay as expected.
+
+base: &base ${workspace.file_path}/platform_tests/complete_delta_json_full_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/complete_delta_json_full_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/complete_delta_json_full_test/1_generate_data.py
+bronze_check: &bronze_check ${workspace.file_path}/platform_tests/complete_delta_json_full_test/2_validate_bronze.py
+silver_full_check: &silver_full_check ${workspace.file_path}/platform_tests/complete_delta_json_full_test/3_validate_silver_full.py
+silver_final_check: &silver_final_check ${workspace.file_path}/platform_tests/complete_delta_json_full_test/4_validate_silver_final.py
+
+catalog: &catalog testing
+schema: &schema functional_testing
+
+bronze_full_table: &bronze_full_table ADDRESS_JSON_BRONZE_FULL_1
+bronze_delta_table: &bronze_delta_table ADDRESS_JSON_BRONZE_DELTA_1
+silver_table: &silver_table ADDRESS_JSON_SILVER_1
+
+shared_params: &shared_params
+  catalog: *catalog
+  env: "${bundle.target}"
+  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  schema_evolution: fail_on_new_columns
+
+# Common to both feeds: only the directory and the target table differ.
+bronze_params: &bronze_params
+  <<: *shared_params
+  source.origin: json
+  source.snapshot_time_pattern: datetime
+  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.preprocessors: record_envelope
+  # Lifted into columns of their own; everything else stays inside DATA.
+  source.envelope_fields: uri, status
+  output.verb: append
+  output.schema_name: *schema
+
+bronze_full_params: &bronze_full_params
+  <<: *bronze_params
+  source.directory: ADDRESS_JSON_FULL_SOURCE_1
+  output.table: *bronze_full_table
+
+bronze_delta_params: &bronze_delta_params
+  <<: *bronze_params
+  source.directory: ADDRESS_JSON_DELTA_SOURCE_1
+  output.table: *bronze_delta_table
+
+# Both feeds merge into one silver table under the same keys and event time.
+silver_params: &silver_params
+  <<: *shared_params
+  source.origin: delta
+  source.schema_name: *schema
+  # How to read the snapshot timestamp out of __FILEPATH: 14 digits, yyyyMMddHHmmss.
+  output.verb: complete_delta
+  output.schema_name: *schema
+  output.table: *silver_table
+  output.keys: URI
+  output.event_time.column: __EXPORT_DATE
+  output.dedup.enabled: "true"
+  output.dedup.columns: URI
+  output.dedup.order_by: __EXPORT_DATE
+
+silver_full_params: &silver_full_params
+  <<: *silver_params
+  source.table: *bronze_full_table
+  # The legacy deprecate_silver: expire everything current, then re-assert the snapshot.
+  output.snapshot_scope: full
+
+silver_delta_params: &silver_delta_params
+  <<: *silver_params
+  source.table: *bronze_delta_table
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    complete_delta_json_full_test:
+      name: complete_delta_json_full_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster complete_delta_json_full_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m5d.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base]
+
+        - task_key: &generate generate_data
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base]
+
+        # The two feeds land independently — separate directories, separate tables,
+        # and so separate checkpoints.
+        - task_key: &bronze_full inbound_to_bronze_full
+          depends_on: [{task_key: *generate}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_full_params, *identity]
+
+        - task_key: &bronze_delta inbound_to_bronze_delta
+          depends_on: [{task_key: *generate}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_delta_params, *identity]
+
+        - task_key: &bronze_check_task bronze_validation
+          depends_on: [{task_key: *bronze_full}, {task_key: *bronze_delta}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base]
+
+        # Full before delta: the baseline has to exist before the delta feed merges.
+        - task_key: &silver_full bronze_to_silver_full
+          depends_on: [{task_key: *bronze_check_task}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_full_params, *identity]
+
+        - task_key: &silver_full_check_task silver_validation_full
+          depends_on: [{task_key: *silver_full}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_full_check
+            parameters: [*base]
+
+        - task_key: &silver_delta bronze_to_silver_delta
+          depends_on: [{task_key: *silver_full_check_task}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_delta_params, *identity]
+
+        - task_key: silver_validation_final
+          depends_on: [{task_key: *silver_delta}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_final_check
+            parameters: [*base]

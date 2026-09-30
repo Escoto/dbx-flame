@@ -1,0 +1,249 @@
+# End-to-end platform test: a full + delta source resyncing after a pause (GH #25).
+#
+# The production shape of complete_delta_json_full_test, with one schema throughout.
+# Both feeds land in bronze in parallel; silver runs the full task first and the delta
+# task after it. The job's dependencies enforce that order, not the framework.
+#
+#   steady   FULL   Nov 1   001-019
+#            DELTA  Nov 15  inserts 020
+#   backlog  FULL   Jan 1   20 records
+#            DELTA  Jan 2   inserts 021
+#            DELTA  Jan 3   updates 001
+#            FULL   Jan 4   18 records: carries Jan 2 and 3, drops 018-020 (the resync)
+#            DELTA  Jan 5   inserts 022
+#
+# The full task reads on __EXPORT_DATE and, under snapshot_scope=full, replays only the
+# newest pending export: Jan 1 is superseded by Jan 4 and never reaches silver. The
+# delta task anchors on __ANCHOR_DT (Bronze stamps it from last_modified_dt), so it skips
+# the Jan 2 and 3 deltas the resync already carries, and dates each version by when
+# the record changed.
+#
+# Expected silver: 20 current after the steady round, 18 after the resync, 19 at the end.
+
+base: &base ${workspace.file_path}/platform_tests/complete_delta_json_anchor_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/complete_delta_json_anchor_test/0_cleanup.py
+land_script: &land_script ${workspace.file_path}/platform_tests/complete_delta_json_anchor_test/1_land_exports.py
+silver_steady_check: &silver_steady_check ${workspace.file_path}/platform_tests/complete_delta_json_anchor_test/2_validate_silver_steady.py
+silver_resync_check: &silver_resync_check ${workspace.file_path}/platform_tests/complete_delta_json_anchor_test/3_validate_silver_resync.py
+silver_final_check: &silver_final_check ${workspace.file_path}/platform_tests/complete_delta_json_anchor_test/4_validate_silver_final.py
+
+catalog: &catalog testing
+schema: &schema functional_testing
+
+bronze_full_table: &bronze_full_table ADDRESS_ANCHOR_BRONZE_FULL_1
+bronze_delta_table: &bronze_delta_table ADDRESS_ANCHOR_BRONZE_DELTA_1
+silver_table: &silver_table ADDRESS_ANCHOR_SILVER_1
+
+shared_params: &shared_params
+  catalog: *catalog
+  env: "${bundle.target}"
+  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  schema_evolution: fail_on_new_columns
+
+bronze_params: &bronze_params
+  <<: *shared_params
+  source.origin: json
+  source.snapshot_time_pattern: datetime
+  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.preprocessors: record_envelope
+  # last_modified_dt is lifted and stamped as __ANCHOR_DT, which the delta task
+  # anchors on. Both feeds stamp it: the resync's rows set the delta task's anchor.
+  source.envelope_fields: uri, status, last_modified_dt
+  source.anchor_dt.column: LAST_MODIFIED_DT
+  source.anchor_dt.format: yyyy-MM-dd HH:mm:ss
+  output.verb: append
+  output.schema_name: *schema
+
+bronze_full_params: &bronze_full_params
+  <<: *bronze_params
+  source.directory: ADDRESS_ANCHOR_FULL_SOURCE_1
+  output.table: *bronze_full_table
+
+bronze_delta_params: &bronze_delta_params
+  <<: *bronze_params
+  source.directory: ADDRESS_ANCHOR_DELTA_SOURCE_1
+  output.table: *bronze_delta_table
+
+silver_params: &silver_params
+  <<: *shared_params
+  source.origin: delta
+  source.schema_name: *schema
+  output.verb: complete_delta
+  output.schema_name: *schema
+  output.table: *silver_table
+  output.keys: URI
+  output.dedup.enabled: "true"
+  output.dedup.columns: URI
+  output.dedup.order_by: __EXPORT_DATE
+
+silver_full_params: &silver_full_params
+  <<: *silver_params
+  source.table: *bronze_full_table
+  output.snapshot_scope: full
+  output.event_time.column: __EXPORT_DATE
+
+silver_delta_params: &silver_delta_params
+  <<: *silver_params
+  source.table: *bronze_delta_table
+  source.increment_anchor: "true"
+  output.event_time.column: LAST_MODIFIED_DT
+  output.event_time.format: yyyy-MM-dd HH:mm:ss
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    complete_delta_json_anchor_test:
+      name: complete_delta_json_anchor_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster complete_delta_json_anchor_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m5d.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base]
+
+        # Round one: the pipeline working as usual.
+        - task_key: &land_steady land_steady
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *land_script
+            parameters: [*base, steady]
+
+        - task_key: &bronze_full_steady inbound_to_bronze_full_steady
+          depends_on: [{task_key: *land_steady}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_full_params, *identity]
+
+        - task_key: &bronze_delta_steady inbound_to_bronze_delta_steady
+          depends_on: [{task_key: *land_steady}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_delta_params, *identity]
+
+        - task_key: &silver_full_steady bronze_to_silver_full_steady
+          depends_on: [{task_key: *bronze_full_steady}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_full_params, *identity]
+
+        - task_key: &silver_delta_steady bronze_to_silver_delta_steady
+          depends_on: [{task_key: *bronze_delta_steady}, {task_key: *silver_full_steady}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_delta_params, *identity]
+
+        - task_key: &silver_steady_check_task silver_validation_steady
+          depends_on: [{task_key: *silver_delta_steady}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_steady_check
+            parameters: [*base]
+
+        # Round two: everything sent while the pipeline was paused.
+        - task_key: &land_backlog land_backlog
+          depends_on: [{task_key: *silver_steady_check_task}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *land_script
+            parameters: [*base, backlog]
+
+        - task_key: &bronze_full inbound_to_bronze_full
+          depends_on: [{task_key: *land_backlog}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_full_params, *identity]
+
+        - task_key: &bronze_delta inbound_to_bronze_delta
+          depends_on: [{task_key: *land_backlog}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_delta_params, *identity]
+
+        - task_key: &silver_full bronze_to_silver_full
+          depends_on: [{task_key: *bronze_full}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_full_params, *identity]
+
+        # Production has the delta task wait on the full task directly; waiting on this
+        # check instead keeps the check from reading silver while the delta task writes.
+        - task_key: &silver_resync_check_task silver_validation_resync
+          depends_on: [{task_key: *silver_full}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_resync_check
+            parameters: [*base]
+
+        - task_key: &silver_delta bronze_to_silver_delta
+          depends_on: [{task_key: *bronze_delta}, {task_key: *silver_resync_check_task}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_delta_params, *identity]
+
+        - task_key: silver_validation_final
+          depends_on: [{task_key: *silver_delta}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_final_check
+            parameters: [*base]

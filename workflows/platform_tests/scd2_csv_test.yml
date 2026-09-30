@@ -1,0 +1,179 @@
+# End-to-end platform test: CSV → Bronze (APPEND) → Silver (SCD2).
+#
+# SCD2 is history-tracked: a changed record does not overwrite its predecessor, it
+# closes it. The second round proves it — ID 1 arrives again with a newer
+# UPDATE_DATE, and silver grows to six rows (five current, one expired) instead of
+# staying at five the way UPSERT does.
+#
+# The event time is the source's own UPDATE_DATE, a string in MM/dd/yyyy HH:mm:ss.
+# That is what the validity windows are built from, and it is deliberately not
+# __EXPORT_DATE: a format the framework had to be told about is the only way to
+# prove the typed comparison rather than a lexical one.
+#
+# Both loads are checkpoint-based.
+# Bronze: streams the inbound files through Auto Loader.
+# Silver: streams bronze itself, which is only sound because bronze is
+#         APPEND-written and so append-only.
+#
+# One export per round, on purpose: SCD2 keeps only the latest version per key
+# within an increment, so landing both at once would collapse ID 1 and leave no
+# history to assert.
+
+base: &base ${workspace.file_path}/platform_tests/scd2_csv_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/scd2_csv_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/scd2_csv_test/1_generate_data.py
+bronze_check: &bronze_check ${workspace.file_path}/platform_tests/scd2_csv_test/2_validate_bronze.py
+silver_check: &silver_check ${workspace.file_path}/platform_tests/scd2_csv_test/3_validate_silver.py
+history_check: &history_check ${workspace.file_path}/platform_tests/scd2_csv_test/4_validate_silver_history.py
+
+# Using shared check for ID uniqueness
+checks_file: &checks_file ${workspace.file_path}/workflows/platform_tests/qa_checks/reusable_unique_id_check.yml
+
+catalog: &catalog testing
+bronze_table: &bronze_table SCD2_CSV_BRONZE_1
+silver_table: &silver_table SCD2_CSV_SILVER_1
+schema: &schema functional_testing
+
+shared_params: &shared_params
+  catalog: *catalog
+  env: "${bundle.target}"
+  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  schema_evolution: fail_on_new_columns
+
+bronze_params: &bronze_params
+  <<: *shared_params
+  source.origin: csv
+  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.directory: SCD2_CSV_SOURCE_1
+  output.verb: append
+  output.schema_name: *schema
+  output.table: *bronze_table
+
+silver_params: &silver_params
+  <<: *shared_params
+  source.origin: delta
+  source.schema_name: *schema
+  source.table: *bronze_table
+  policies.checks_file: *checks_file
+  output.verb: scd2
+  output.schema_name: *schema
+  output.table: *silver_table
+  output.keys: ID
+  output.event_time.column: UPDATE_DATE
+  output.event_time.format: MM/dd/yyyy HH:mm:ss
+  output.dedup.enabled: "true"
+  output.dedup.columns: ID
+  output.dedup.order_by: UPDATE_DATE
+  output.dedup.order_by_format: MM/dd/yyyy HH:mm:ss
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    scd2_csv_test:
+      name: scd2_csv_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster scd2_csv_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m5d.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base]
+
+        - task_key: &generate_1 generate_data_1
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, "1"]
+
+        - task_key: &bronze_1 inbound_to_bronze_1
+          depends_on: [{task_key: *generate_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_check_1 bronze_validation_1
+          depends_on: [{task_key: *bronze_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base]
+
+        - task_key: &silver_1 bronze_to_silver_1
+          depends_on: [{task_key: *bronze_check_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: &silver_check_1 silver_validation_1
+          depends_on: [{task_key: *silver_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base]
+
+        # Second round: ID 1 comes back with a newer UPDATE_DATE, plus two new keys.
+        - task_key: &generate_2 generate_data_2
+          depends_on: [{task_key: *silver_check_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, "2"]
+
+        - task_key: &bronze_2 inbound_to_bronze_2
+          depends_on: [{task_key: *generate_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &silver_2 bronze_to_silver_2
+          depends_on: [{task_key: *bronze_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: silver_validation_2
+          depends_on: [{task_key: *silver_2}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *history_check
+            parameters: [*base]

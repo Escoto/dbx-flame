@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "object_type": "DELTA_EXPORT",
+    "object_description": "Business Object - ADDRESS",
+    "export_date": "20260105050000Z",
+    "export_timezone": "UTC",
+    "object_count": 1
+  },
+  "data": [
+    {
+      "uri": "https://r.testing.com/022",
+      "status": "ACTIVE",
+      "street_address": "22 Main Street",
+      "postal_code": "10022",
+      "country": "Germany",
+      "last_modified_dt": "2026-01-05 09:00:00"
+    }
+  ]
+}

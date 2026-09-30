@@ -1,0 +1,24 @@
+bundle:
+  name: dbx_flame
+  engine: direct
+
+include:
+  - workflows/platform_tests/*.yml
+  - workflows/*.yml
+
+artifacts:
+  dbx_flame_wheel:
+    type: whl
+    # --clean empties dist/ first. The task libraries glob dist/*.whl, so a wheel left
+    # over from an earlier version would be picked up instead of the one just built.
+    build: poetry build --clean
+    path: .
+
+targets:
+  dev_01:
+    mode: development
+    default: true
+    workspace:
+      # The profile name only, never a workspace URL: the host comes from
+      # this profile's config at in the local ~/.databrickscfg.
+      profile: dbx_flame_profile

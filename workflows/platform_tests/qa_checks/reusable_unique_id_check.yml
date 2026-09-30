@@ -1,0 +1,11 @@
+# Reusable DQX ruleset: the key column ID carries no duplicates.
+#
+# DQX evaluates uniqueness within one micro-batch, which is the same scope the gate
+# judges — a duplicate arriving in a later batch is a different batch's problem.
+- name: id_is_unique
+  criticality: error
+  check:
+    function: is_unique
+    arguments:
+      columns:
+        - ID

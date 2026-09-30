@@ -1,0 +1,45 @@
+{
+  "metadata": {
+    "object_type": "MDM_FULL_EXPORT",
+    "object_description": "Business Object - ADDRESS for Databricks...",
+    "object_id": 17,
+    "export_date": "20260101050000Z",
+    "export_timezone": "UTC",
+    "object_count": 3
+  },
+  "data": [
+    {
+      "uri": "https://r.testing.uri/000/0",
+      "related_cro": [
+        "0-6YSHTL9 [IQVIA]"
+      ],
+      "status": "ACTIVE",
+      "street_address": "12 American Road.",
+      "postal_code": "0000",
+      "city": "City",
+      "country": "Australia"
+    },
+    {
+      "uri": "https://r.testing.com/111/1",
+      "related_cro": [
+        "0-NS85AS [SYNEOS]"
+      ],
+      "status": "ACTIVE",
+      "street_address": "No.090 Zhuodaoquan, Hongshan",
+      "postal_code": "000000",
+      "country": "China"
+    },
+    {
+      "uri": "https://r.testing.com/222/2",
+      "related_cro": [
+        "0-NA7SH0 [ICON]",
+        "0-NAP01W [SYNEOS]"
+      ],
+      "status": "ACTIVE",
+      "street_address": "Elsenheimerstr 17",
+      "postal_code": "80680",
+      "city": "Munich",
+      "country": "Germany"
+    }
+  ]
+}

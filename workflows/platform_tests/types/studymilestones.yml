@@ -1,0 +1,18 @@
+columns:
+  - name: MILESTONESEQ
+    cast:
+      target_type: decimal(10,2)
+  - name: KEYSEQ
+    cast:
+      target_type: int
+  - name: MILESTONEDATE
+    cast:
+      target_type: date
+      format: yyyy-MM-dd
+  - name: UPDATEDATE
+    cast:
+      target_type: timestamp
+      format: MM/dd/yyyy HH:mm:ss
+  - name: MILESTONEVALUE
+    cast:
+      target_type: decimal(10,2)

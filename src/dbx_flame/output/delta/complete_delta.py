@@ -1,0 +1,168 @@
+"""COMPLETE_DELTA verb — replay every pending snapshot, in order, through SCD2.
+
+Plain SCD2 keeps the latest version per key within whatever it happens to process, so
+a backlog of three exports collapses to the newest one and the intermediate states never
+reach Silver. This verb splits the increment back into the snapshots it arrived as and
+merges them one at a time, which is what makes every evolution of a record visible.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar, Optional
+
+from delta.tables import DeltaTable
+from pyspark.sql import functions as F
+
+from dbx_flame.context.config import IncrementStrategy, Origin, SnapshotScope, Verb
+from dbx_flame.output.base import Requirements
+from dbx_flame.output.delta.scd2 import merge_history
+from dbx_flame.output.mechanics import (
+    CURRENT,
+    CURRENT_FLAG,
+    DELETED,
+    DELETED_FLAG,
+    END_DATE,
+    EXPIRED,
+    EXPORT_DATE,
+    SILVER_TIMESTAMP,
+    as_timestamp,
+    key_condition,
+)
+from dbx_flame.pipelines.delta_source import DeltaSource
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from pyspark.sql import Column, DataFrame
+
+    from dbx_flame.context.context import Context
+
+_SOURCE = "CompleteDeltaWriter"
+
+
+class CompleteDeltaWriter:
+    verb: ClassVar[Verb] = Verb.COMPLETE_DELTA
+    requires: ClassVar[Requirements] = Requirements(
+        keys=True,
+        event_time=True,
+        supports_deletes=True,
+        supports_snapshot_scope=True,
+        # snapshot replay needs a Delta updates table; file origins cannot feed it
+        origins=frozenset({Origin.DELTA}),
+        # Watermark only: replay has to see every snapshot, so a strategy that
+        # keeps just the newest one would defeat the purpose of the verb.
+        increment_strategies=(IncrementStrategy.WATERMARK,),
+    )
+
+    def write(self, df: DataFrame, ctx: Context) -> None:
+        # The deletes feed is read here rather than by the pipeline spine because only
+        # this verb has one. Both reads cut at the same point: the watermark comes from
+        # the target, and nothing has been written to it yet.
+        deletes = DeltaSource().read_deletes(ctx)
+
+        snapshots = _ordered_snapshots(df, deletes)
+        if not snapshots:
+            # Nothing pending. Hand the empty frame to the engine anyway: on a first run
+            # that is what creates the target, so downstream readers find an empty table
+            # rather than a missing one.
+            merge_history(df, ctx)
+            return
+
+        if ctx.config.output.snapshot_scope == SnapshotScope.FULL:
+            snapshots = _from_newest_export(df, snapshots, ctx)
+
+        ctx.logger.info(
+            name="snapshots_to_replay",
+            source=_SOURCE,
+            total=len(snapshots),
+            description=f"Replaying {len(snapshots)} snapshot(s) into {ctx.target_table}",
+        )
+
+        for snapshot in snapshots:
+            merge_history(_at(df, snapshot), ctx, snapshot)
+            if deletes is not None:
+                _apply_deletes(_at(deletes, snapshot), ctx)
+
+
+def _ordered_snapshots(updates: DataFrame, deletes: Optional[DataFrame]) -> list[datetime]:
+    """Every pending snapshot, oldest first — the order history has to be rebuilt in.
+
+    __EXPORT_DATE identifies a snapshot. Bronze refuses a file without one, and a
+    filter on the column itself lets each snapshot's merge skip the other exports' files.
+    """
+    stamps = updates.select(EXPORT_DATE)
+    if deletes is not None:
+        stamps = stamps.union(deletes.select(EXPORT_DATE))
+
+    return [row[0] for row in stamps.distinct().orderBy(EXPORT_DATE).collect()]
+
+
+def _from_newest_export(
+    updates: DataFrame, snapshots: list[datetime], ctx: Context
+) -> list[datetime]:
+    """snapshot_scope=full: each export supersedes every one before it.
+
+    Replaying the older ones would only write versions the newest immediately expires;
+    Bronze keeps them. Deletes stamped after the newest export still apply.
+    """
+    newest = updates.agg(F.max(EXPORT_DATE)).collect()[0][0]
+    if newest is None:
+        return snapshots
+
+    kept = [snapshot for snapshot in snapshots if snapshot >= newest]
+    skipped = len(snapshots) - len(kept)
+    if skipped:
+        ctx.logger.info(
+            name="snapshots_superseded",
+            source=_SOURCE,
+            total=skipped,
+            description=f"Skipping {skipped} snapshot(s) older than the export of {newest}",
+        )
+    return kept
+
+
+def _at(df: DataFrame, snapshot: datetime) -> DataFrame:
+    return df.filter(F.col(EXPORT_DATE) == F.lit(snapshot))
+
+
+def _delete_time(ctx: Context, alias: str | None = None) -> Column:
+    configured = ctx.config.output.deletes
+    assert configured and configured.event_time  # guaranteed by config validation
+    return as_timestamp(configured.event_time.column, configured.event_time.format, alias)
+
+
+def _apply_deletes(df: DataFrame, ctx: Context) -> None:
+    """Soft-delete the entities this snapshot retired. History is never removed.
+
+    Two merges, because they touch different row sets: the flag marks the entity across
+    all of its versions, while the window only closes on the one still open.
+    """
+    if not ctx.spark.catalog.tableExists(ctx.target_table):
+        return
+    if df.isEmpty():
+        return
+
+    configured = ctx.config.output.deletes
+    assert configured  # guaranteed by config validation
+    matched = key_condition(configured.keys, "s", "t")
+
+    target = DeltaTable.forName(ctx.spark, ctx.target_table)
+    target.alias("t").merge(df.alias("s"), matched).whenMatchedUpdate(
+        set={f"`{DELETED_FLAG}`": F.lit(DELETED)}
+    ).execute()
+
+    still_open = (F.col(f"t.`{END_DATE}`").isNull()) & (F.col(f"t.`{CURRENT_FLAG}`") == CURRENT)
+    target.alias("t").merge(df.alias("s"), matched).whenMatchedUpdate(
+        condition=still_open,
+        set={
+            f"`{END_DATE}`": _delete_time(ctx, "s"),
+            f"`{CURRENT_FLAG}`": F.lit(EXPIRED),
+            f"`{SILVER_TIMESTAMP}`": F.current_timestamp(),
+        },
+    ).execute()
+
+    ctx.logger.kpi(
+        name="data_retirement",
+        total=df.count(),
+        description=f"{_SOURCE} soft-deleted records in {ctx.target_table}",
+    )

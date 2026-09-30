@@ -1,0 +1,148 @@
+# End-to-end platform test: Elluminate study milestones, typed on the way into
+# Bronze, replayed into Silver with COMPLETE_DELTA.
+#
+# The scenario: Elluminate exports one CSV snapshot per day containing every study,
+# and the pipeline has not run for a week. Seven snapshots are waiting, which is the
+# backlog COMPLETE_DELTA exists to replay rather than collapse into its newest state.
+#
+# Three studies behave differently on purpose:
+#   TST_ST_111  re-sent identically every day — must produce no history at all
+#   TST_ST_246  one metric moves each day; its date milestones never move
+#   TST_ST_782  every milestone moves each day
+#
+# Typing runs at Bronze, so the types are established once, on the way in.
+# studymilestones.yml turns five of the eighteen
+# columns into decimals, ints, dates and timestamps; the rest stay strings. Because
+# UPDATEDATE is already a timestamp by the time Silver reads it, output.event_time
+# carries no format here — a second MM/dd/yyyy parse over a typed column would yield
+# NULL and fail the cast validation.
+#
+# snapshot_scope stays at its default, delta: a record missing from an increment is
+# untouched, so re-sending TST_ST_111 unchanged costs nothing. The `_full` variant of
+# this test drives the same fixtures through snapshot_scope=full, where every current
+# row is expired and re-inserted on every snapshot instead.
+
+base: &base ${workspace.file_path}/platform_tests/complete_delta_csv_typecasting_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/complete_delta_csv_typecasting_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/complete_delta_csv_typecasting_test/1_generate_data.py
+bronze_check: &bronze_check ${workspace.file_path}/platform_tests/complete_delta_csv_typecasting_test/2_validate_bronze.py
+silver_check: &silver_check ${workspace.file_path}/platform_tests/complete_delta_csv_typecasting_test/3_validate_silver.py
+
+# Shared with every study-milestones test: the types are a property of the dataset,
+# not of any one workflow.
+cast_config: &cast_config ${workspace.file_path}/workflows/platform_tests/types/studymilestones.yml
+
+catalog: &catalog testing
+bronze_table: &bronze_table COMPLETE_DELTA_STUDYMILESTONES_BRONZE_2
+silver_table: &silver_table COMPLETE_DELTA_STUDYMILESTONES_SILVER_2
+schema: &schema functional_testing
+
+# The production grain of a milestone record.
+milestone_keys: &milestone_keys STUDYID, SUBSTUDYID, PART, COHORT, ARM, MILESTONETYPE, MILESTONECODE
+
+shared_params: &shared_params
+  catalog: *catalog
+  env: "${bundle.target}"
+  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  schema_evolution: fail_on_new_columns
+
+bronze_params: &bronze_params
+  <<: *shared_params
+  source.origin: csv
+  source.snapshot_time_pattern: datetime
+  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.directory: COMPLETE_DELTA_STUDYMILESTONES_SOURCE_2
+  # Types are applied as the data lands, so bronze is already conformed.
+  typing.cast_config: *cast_config
+  output.verb: append
+  output.schema_name: *schema
+  output.table: *bronze_table
+
+silver_params: &silver_params
+  <<: *shared_params
+  source.origin: delta
+  source.schema_name: *schema
+  source.table: *bronze_table
+  # How to read the snapshot timestamp out of __FILEPATH: 14 digits, yyyyMMddHHmmss.
+  output.verb: complete_delta
+  output.schema_name: *schema
+  output.table: *silver_table
+  output.keys: *milestone_keys
+  # Already a timestamp — bronze cast it. Deliberately no .format here.
+  output.event_time.column: UPDATEDATE
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    complete_delta_csv_typecasting_delta_test:
+      name: complete_delta_csv_typecasting_delta_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster complete_delta_csv_typecasting_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m5d.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base]
+
+        # A week of daily exports, all landing before the pipeline gets to run.
+        - task_key: &generate generate_data
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base]
+
+        - task_key: &bronze inbound_to_bronze
+          depends_on: [{task_key: *generate}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_check_task bronze_validation
+          depends_on: [{task_key: *bronze}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base]
+
+        - task_key: &silver bronze_to_silver
+          depends_on: [{task_key: *bronze_check_task}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: silver_validation
+          depends_on: [{task_key: *silver}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base]

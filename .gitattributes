@@ -1,0 +1,13 @@
+# Normalize to LF in the repository, and check out LF everywhere.
+#
+# This project is developed on Windows but runs on Databricks and is tested under
+# WSL, so a CRLF checkout is actively harmful: make reads the Makefile through a
+# Linux shell, and a CRLF recipe line fails there. Pinning eol=lf keeps one
+# representation everywhere rather than one per contributor's autocrlf setting.
+* text=auto eol=lf
+
+# Binary: never touch these.
+*.png binary
+*.jpg binary
+*.whl binary
+*.sas7bdat binary

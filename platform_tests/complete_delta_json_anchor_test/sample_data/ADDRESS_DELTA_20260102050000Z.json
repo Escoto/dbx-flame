@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "object_type": "DELTA_EXPORT",
+    "object_description": "Business Object - ADDRESS",
+    "export_date": "20260102050000Z",
+    "export_timezone": "UTC",
+    "object_count": 1
+  },
+  "data": [
+    {
+      "uri": "https://r.testing.com/021",
+      "status": "ACTIVE",
+      "street_address": "21 Main Street",
+      "postal_code": "10021",
+      "country": "China",
+      "last_modified_dt": "2026-01-02 09:00:00"
+    }
+  ]
+}
