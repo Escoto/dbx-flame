@@ -32,7 +32,6 @@ class SchemaEvolution(StrEnum):
 
     ADD_NEW_COLUMNS = "add_new_columns"
     ADD_NEW_COLUMNS_WITH_TYPE_WIDENING = "add_new_columns_with_type_widening"
-    RESCUE = "rescue"
     FAIL_ON_NEW_COLUMNS = "fail_on_new_columns"
     NONE = "none"
 

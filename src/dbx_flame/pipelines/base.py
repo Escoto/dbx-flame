@@ -23,7 +23,6 @@ class SourcePipeline(Protocol):
 EVOLUTION_MODES: dict[SchemaEvolution, str] = {
     SchemaEvolution.ADD_NEW_COLUMNS: "addNewColumns",
     SchemaEvolution.ADD_NEW_COLUMNS_WITH_TYPE_WIDENING: "addNewColumnsWithTypeWidening",
-    SchemaEvolution.RESCUE: "rescue",
     SchemaEvolution.FAIL_ON_NEW_COLUMNS: "failOnNewColumns",
     SchemaEvolution.NONE: "none",
 }
