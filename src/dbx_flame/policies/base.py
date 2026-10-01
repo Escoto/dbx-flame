@@ -17,7 +17,6 @@ class PolicyResult:
     """
 
     policy: str
-    passed: bool
     severity: Severity
     failed_count: int = 0
     details: str = ""
