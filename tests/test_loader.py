@@ -392,3 +392,14 @@ def test_valid_rename_patterns_are_parsed_as_a_list():
     config = load_config(params)
 
     assert config.source.rename_patterns == ["__[Vv]$=", "^PREFIX_="]
+
+
+def test_rescue_schema_evolution_rejected():
+    """rescue was removed: sanitization drops _rescued_data, so it behaved like none."""
+    params = {**MINIMAL_PARAMS, "schema_evolution": "rescue"}
+    with pytest.raises(ConfigValidationError) as exc_info:
+        load_config(params)
+    message = str(exc_info.value)
+    assert "schema_evolution" in message
+    for mode in ("add_new_columns", "fail_on_new_columns", "none"):
+        assert mode in message

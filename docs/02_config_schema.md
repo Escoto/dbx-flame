@@ -69,7 +69,7 @@ source.increment_anchor: false         # bool; watermark on __ANCHOR_DT instead 
 
 schema_evolution: fail_on_new_columns    # what happens when a new column shows up:
                                         #   add_new_columns | add_new_columns_with_type_widening
-                                        #   | rescue | fail_on_new_columns (default) | none
+                                        #   | fail_on_new_columns (default) | none
                                         # one knob, read and write together — see §4
 
 # ── typing (Layer 3) ─────────────────────────────────────

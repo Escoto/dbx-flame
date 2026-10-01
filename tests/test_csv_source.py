@@ -80,7 +80,6 @@ def test_schema_location_points_at_the_resolved_hints_path(mock_spark):
             SchemaEvolution.ADD_NEW_COLUMNS_WITH_TYPE_WIDENING,
             "addNewColumnsWithTypeWidening",
         ),
-        (SchemaEvolution.RESCUE, "rescue"),
         (SchemaEvolution.NONE, "none"),
     ],
 )
