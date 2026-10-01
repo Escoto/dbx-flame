@@ -3,11 +3,12 @@
 A configuration-driven data engineering framework for Databricks. Onboarding a new dataset
 means writing a workflow YAML — never Python.
 
-[![CI][CI]][CI-url]
 
-[![Databricks][Databricks]][Databricks-url]
-[![Python][Python]][Python-url]
-[![Spark][Spark]][Spark-url]
+[![PyPI][PyPI]][PyPI-url]
+![Status][Status]
+[![CI][CI]][CI-url]
+[![python][Python]][Python-url]
+[![Databricks Runtime][DBR]][DBR-url]
 [![DQX][DQX]][DQX-url]
 [![License][License]][License-url]
 
@@ -28,15 +29,15 @@ The project is **alpha** — see [Status](#status) for what's implemented today.
   through a typed `Context` and a DataFrame, so every layer is independently testable.
 - **Five write verbs** — `APPEND`, `FULL`, `UPSERT`, `SCD2`, `COMPLETE_DELTA` — layer-agnostic,
   so the same verb serves Inbound→Bronze or Bronze→Silver.
-- **Gold is SQL** — each Gold table is a materialized view over Silver, in its own `.sql` file.
-  Silver's MERGEs never block it. See [Gold](docs/00_overview.md#gold).
+- **Gold is SQL (planned)** — each Gold table will be a materialized view over Silver, in its
+  own `.sql` file, so Silver's MERGEs never block it. See [Gold](docs/00_overview.md#gold).
 - **A data quality gate, not a bolt-on** — every batch is checked against a
   [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset before it's written;
   `error` refuses the batch, `warn` logs and lets it through.
-- **Fail fast, fail loud** — invalid config, unknown origins, and failed checks stop the run
-  with one aggregated error report. Nothing logs an error and reports success.
-- **Ships as a wheel** — src-layout package deployed via Databricks Asset Bundles and run
-  through `python_wheel_task` entry points. No notebook logic, no `sys.path` hacks.
+- **Fail fast, fail loud** — invalid config and failed checks stop the run with one aggregated
+  error report. Nothing logs an error and reports success.
+- **Ships as a wheel** — src-layout package deployed via Databricks Declarative Automation
+  Bundles and run through `python_wheel_task` entry points. No notebook logic, no `sys.path` hacks.
 
 ## Quick Look
 
@@ -78,66 +79,18 @@ bundle. See [03_write_verbs.md](docs/03_write_verbs.md) for the full verb matrix
 
 ## Development
 
-Targets Linux (native or WSL). Dependencies and the virtualenv are managed with
-[Poetry](https://python-poetry.org/) (2.x).
-
-**Prerequisites**: a JDK (11 or 17 — required by PySpark) and Python **3.11** exactly (matches
-Databricks Runtime 15.4 LTS). If your system Python isn't 3.11, install one (e.g. via
-[pyenv](https://github.com/pyenv/pyenv) or a standalone build) and point Poetry at it.
+Targets Linux; on Windows, work inside WSL, since Spark doesn't run natively there. Needs a JDK
+(11 or 17, for PySpark), Python **3.11** (matches Databricks Runtime 15.4 LTS) and
+[Poetry](https://python-poetry.org/) 2.x.
 
 ```bash
-poetry env use python3.11   # once, to pin the interpreter (path to a 3.11 binary if not on PATH)
+poetry env use python3.11   # once, to pin the interpreter
 make install                # runtime + dev dependencies
 make test                   # unit tests with coverage
 ```
 
-Poetry keeps the virtualenv outside the project (`~/.cache/pypoetry/virtualenvs`), so there is
-no `.venv/` directory to get out of sync with the interpreter actually running the tests.
-
-### Make targets
-
-| Target | What it does |
-|---|---|
-| `make install` | `poetry install` — create the venv and install everything |
-| `make test` | `poetry run pytest` — unit tests with coverage (70% gate) |
-| `make qa` | `black .`, then `flake8`, then `yamllint .` |
-| `make format` | import sort (`ruff --select I --fix`) + `black .` |
-| `make build` | `poetry build` — wheel + sdist into `dist/` |
-| `make clean` | remove `dist/`, caches, `__pycache__` |
-
-`make` with no target prints this list.
-
-Note that `make qa` **rewrites files** — `black .` formats in place rather than checking.
-Use `poetry run black --check .` for a read-only pass.
-
-### Tool configuration
-
-All tool config lives in `pyproject.toml` except flake8, which cannot read it — flake8's
-settings are in `.flake8`.
-
-`mypy` and `ruff` are installed and configured but are not part of `make qa` yet.
-
-### Testing
-
-`make test` runs unit tests against a local Spark + Delta session. Platform tests are real
-Databricks jobs under [platform_tests/](platform_tests/) — each one generates its own
-fixtures and asserts the resulting tables:
-
-```bash
-databricks bundle deploy -t dev_01 -p <profile>
-databricks bundle run integration_test_suite -t dev_01 -p <profile>
-```
-
-See [05_testing.md](docs/05_testing.md) for the full strategy.
-
-### On Windows (WSL)
-
-Spark doesn't run natively on Windows, so do all of the above inside WSL (e.g. Ubuntu 24.04),
-not PowerShell/cmd — the Databricks CLI profile lives there too:
-
-```bash
-wsl -d Ubuntu-24.04 -- bash -lc 'cd /path/to/dbx-flame && poetry run pytest'
-```
+`make` with no target lists the rest. Platform tests are real Databricks jobs under
+[platform_tests/](platform_tests/); see [05_testing.md](docs/05_testing.md).
 
 ## Deploying to Databricks
 
@@ -151,23 +104,10 @@ databricks bundle deploy
 
 ## Traceability
 
-Every run writes to an audit log — not vendor telemetry, a trail in your own Databricks
-catalog (`monitoring_{env}.audit.logs`). It's not a bolt-on: `Context` carries the logger as a
-required field, and the audit write is deliberately the first thing a task does — if it can't
-land, the run fails before touching any data, rather than processing a batch it can't account
-for.
-
-Each row ties a log level and an event to the exact job, run and task that produced it:
-
-| | Columns |
-|---|---|
-| What ran | `name`, `source` |
-| When | `__workflow_id` / `__workflow_run_id`, `__task_key` / `__task_run_id`, `time_stamp` |
-| Where | `catalog`, `schema`, `table` |
-| Outcome | `type` (INFO / WARNING / ERROR), `total`, `description`, `metadata` |
-
-Nothing leaves the workspace, and there's no flag to turn it off. Full contract:
-[00_overview.md](docs/00_overview.md#glossary).
+Every run that passes config validation writes an audit trail to your own catalog
+(`monitoring_{env}.audit.logs`), not to vendor telemetry. Each row names the job, run and task
+that produced it. The audit write comes first, so a run that can't log fails before touching
+any data. Schema: [00_overview.md](docs/00_overview.md#glossary).
 
 ## Status
 
@@ -182,20 +122,22 @@ Apache 2.0 — see [LICENSE](LICENSE).
 
 <!-- MARKDOWN LINKS & IMAGES -->
 
-[CI]: https://github.com/Escoto/dbx-flame/actions/workflows/on_push.yml/badge.svg
-[CI-url]: https://github.com/Escoto/dbx-flame/actions/workflows/on_push.yml
+[DBR]: https://img.shields.io/badge/Databricks%20Runtime-15.4--LTS-%231B3139
+[DBR-url]: https://docs.databricks.com/en/release-notes/runtime/15.4lts.html
 
-[Databricks]: https://img.shields.io/badge/Databricks-FF3621?style=for-the-badge&logo=Databricks&logoColor=white
-[Databricks-url]: https://www.databricks.com/
-
-[Python]: https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54
+[Python]: https://img.shields.io/badge/python-3.11-g
 [Python-url]: https://www.python.org/
 
-[Spark]: https://img.shields.io/badge/Apache_Spark-FFFFFF?style=for-the-badge&logo=apachespark&logoColor=#E35A16
-[Spark-url]: https://spark.apache.org/
-
-[DQX]: https://img.shields.io/badge/Data_Quality-DQX-FF3621?style=for-the-badge
+[DQX]: https://img.shields.io/badge/DQX-0.16-FF3621
 [DQX-url]: https://databrickslabs.github.io/dqx/
 
-[License]: https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge
+[CI]: https://img.shields.io/github/actions/workflow/status/Escoto/dbx-flame/on_push.yml?branch=main&label=CI
+[CI-url]: https://github.com/Escoto/dbx-flame/actions/workflows/on_push.yml
+
+[PyPI]: https://img.shields.io/pypi/v/dbx-flame?color=blue
+[PyPI-url]: https://pypi.org/project/dbx-flame/
+
+[Status]: https://img.shields.io/badge/status-alpha-blue
+
+[License]: https://img.shields.io/badge/license-Apache%202.0-blue
 [License-url]: LICENSE
