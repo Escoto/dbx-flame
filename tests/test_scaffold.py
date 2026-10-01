@@ -45,8 +45,7 @@ def test_cast_configuration_defaults():
 
 
 def test_policy_result():
-    result = PolicyResult(policy="id_is_null", passed=True, severity=Severity.WARN)
-    assert result.passed
+    result = PolicyResult(policy="id_is_null", severity=Severity.WARN)
     assert result.failed_count == 0
 
 

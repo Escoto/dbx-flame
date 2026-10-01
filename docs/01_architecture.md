@@ -146,7 +146,7 @@ class CastService:
 ```python
 @dataclass
 class PolicyResult:
-    policy: str; passed: bool; failed_count: int; severity: Severity; details: str
+    policy: str; failed_count: int; severity: Severity; details: str
 
 class PolicyRunner:
     def run(self, df: DataFrame, ctx: Context) -> None: ...

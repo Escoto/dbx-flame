@@ -87,7 +87,6 @@ class PolicyRunner:
         return [
             PolicyResult(
                 policy=row["name"],
-                passed=False,
                 severity=Severity(row["severity"]),
                 failed_count=row["count"],
                 details=row["message"],
