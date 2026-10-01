@@ -36,6 +36,10 @@ resources:
           run_job_task:
             job_id: ${resources.jobs.full_csv_long_backlog_test.id}
 
+        - task_key: full_txt_weekly_test
+          run_job_task:
+            job_id: ${resources.jobs.full_txt_weekly_test.id}
+
         - task_key: scd2_csv_test
           run_job_task:
             job_id: ${resources.jobs.scd2_csv_test.id}
