@@ -3,12 +3,15 @@
 A configuration-driven data engineering framework for Databricks. Onboarding a new dataset
 means writing a workflow YAML — never Python.
 
-[![CI][CI]][CI-url]
-
-[![Databricks][Databricks]][Databricks-url]
-[![Python][Python]][Python-url]
-[![Spark][Spark]][Spark-url]
+[![Databricks Runtime][DBR]][DBR-url]
+[![python][Python]][Python-url]
+[![Apache Spark][Spark]][Spark-url]
 [![DQX][DQX]][DQX-url]
+[![Poetry][Poetry]][Poetry-url]
+[![Code style: black][Black]][Black-url]
+[![CI][CI]][CI-url]
+[![Release][Release]][Release-url]
+![Status][Status]
 [![License][License]][License-url]
 
 ## Why
@@ -182,20 +185,31 @@ Apache 2.0 — see [LICENSE](LICENSE).
 
 <!-- MARKDOWN LINKS & IMAGES -->
 
+[DBR]: https://img.shields.io/badge/Databricks%20Runtime-15.4--LTS-%231B3139
+[DBR-url]: https://docs.databricks.com/en/release-notes/runtime/15.4lts.html
+
+[Python]: https://img.shields.io/badge/python-3.11-g
+[Python-url]: https://www.python.org/
+
+[Spark]: https://img.shields.io/badge/Apache%20Spark-3.5-E25A1C?logo=apachespark&logoColor=white
+[Spark-url]: https://spark.apache.org/
+
+[DQX]: https://img.shields.io/badge/DQX-0.16-FF3621
+[DQX-url]: https://databrickslabs.github.io/dqx/
+
+[Poetry]: https://img.shields.io/endpoint?url=https://python-poetry.org/badge/v0.json
+[Poetry-url]: https://python-poetry.org/
+
+[Black]: https://img.shields.io/badge/code%20style-black-000000.svg
+[Black-url]: https://github.com/psf/black
+
 [CI]: https://github.com/Escoto/dbx-flame/actions/workflows/on_push.yml/badge.svg
 [CI-url]: https://github.com/Escoto/dbx-flame/actions/workflows/on_push.yml
 
-[Databricks]: https://img.shields.io/badge/Databricks-FF3621?style=for-the-badge&logo=Databricks&logoColor=white
-[Databricks-url]: https://www.databricks.com/
+[Release]: https://img.shields.io/github/v/tag/Escoto/dbx-flame?label=release
+[Release-url]: https://github.com/Escoto/dbx-flame/tags
 
-[Python]: https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54
-[Python-url]: https://www.python.org/
+[Status]: https://img.shields.io/badge/status-alpha-orange
 
-[Spark]: https://img.shields.io/badge/Apache_Spark-FFFFFF?style=for-the-badge&logo=apachespark&logoColor=#E35A16
-[Spark-url]: https://spark.apache.org/
-
-[DQX]: https://img.shields.io/badge/Data_Quality-DQX-FF3621?style=for-the-badge
-[DQX-url]: https://databrickslabs.github.io/dqx/
-
-[License]: https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge
+[License]: https://img.shields.io/badge/license-Apache%202.0-blue
 [License-url]: LICENSE
