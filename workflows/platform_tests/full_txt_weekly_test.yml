@@ -1,0 +1,214 @@
+# End-to-end platform test: pipe-delimited TXT → Bronze (APPEND) → Silver (FULL).
+#
+# A provider sends a full snapshot every Monday at 05:00; the pipeline runs on Mondays
+# at 10:00 and silver needs only the latest snapshot. Three scheduled runs:
+#
+#   Round 1 (Monday 1): export 1 lands, pipeline runs.
+#   Round 2 (Monday 2): export 2 lands, pipeline runs.
+#   Round 3 (Monday 3): export 3, an accidental push on Wednesday 2, and export 4 are
+#                       both waiting; one run reads them together.
+#
+# Bronze ends up with all four exports. Silver's Delta history must show exports 1, 2
+# and 4 only: FULL keeps the newest export of a batch, so the stray push never lands.
+# Export 4 is named .TXT to prove the extension matches in any case.
+
+base: &base ${workspace.file_path}/platform_tests/full_txt_weekly_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/full_txt_weekly_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/full_txt_weekly_test/1_generate_data.py
+bronze_check: &bronze_check ${workspace.file_path}/platform_tests/full_txt_weekly_test/2_validate_bronze.py
+silver_check: &silver_check ${workspace.file_path}/platform_tests/full_txt_weekly_test/3_validate_silver.py
+
+catalog: &catalog testing
+bronze_table: &bronze_table SUPPLIER_TXT_BRONZE_1
+silver_table: &silver_table SUPPLIER_TXT_SILVER_1
+schema: &schema functional_testing
+
+shared_params: &shared_params
+  catalog: *catalog
+  env: "${bundle.target}"
+  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  schema_evolution: fail_on_new_columns
+
+bronze_params: &bronze_params
+  <<: *shared_params
+  source.origin: csv
+  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.directory: SUPPLIER_TXT_SOURCE_1
+  source.file_extension: txt
+  source.options.delimiter: "|"
+  output.verb: append
+  output.schema_name: *schema
+  output.table: *bronze_table
+
+silver_params: &silver_params
+  <<: *shared_params
+  source.origin: delta
+  source.schema_name: *schema
+  source.table: *bronze_table
+  output.verb: full
+  output.schema_name: *schema
+  output.table: *silver_table
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    full_txt_weekly_test:
+      name: full_txt_weekly_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster full_txt_weekly_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m5d.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base]
+
+        # Round 1 — Monday 1: export 1.
+        - task_key: &generate_1 generate_data_1
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, "1"]
+
+        - task_key: &bronze_1 inbound_to_bronze_1
+          depends_on: [{task_key: *generate_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_check_1 bronze_validation_1
+          depends_on: [{task_key: *bronze_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base, "1"]
+
+        - task_key: &silver_1 bronze_to_silver_1
+          depends_on: [{task_key: *bronze_check_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: &silver_check_1 silver_validation_1
+          depends_on: [{task_key: *silver_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base, "1"]
+
+        # Round 2 — Monday 2: export 2.
+        - task_key: &generate_2 generate_data_2
+          depends_on: [{task_key: *silver_check_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, "2"]
+
+        - task_key: &bronze_2 inbound_to_bronze_2
+          depends_on: [{task_key: *generate_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_check_2 bronze_validation_2
+          depends_on: [{task_key: *bronze_2}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base, "2"]
+
+        - task_key: &silver_2 bronze_to_silver_2
+          depends_on: [{task_key: *bronze_check_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: &silver_check_2 silver_validation_2
+          depends_on: [{task_key: *silver_2}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base, "2"]
+
+        # Round 3 — Monday 3: Wednesday's stray push and export 4, read together.
+        - task_key: &generate_3 generate_data_3
+          depends_on: [{task_key: *silver_check_2}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, "3"]
+
+        - task_key: &bronze_3 inbound_to_bronze_3
+          depends_on: [{task_key: *generate_3}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_check_3 bronze_validation_3
+          depends_on: [{task_key: *bronze_3}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base, "3"]
+
+        - task_key: &silver_3 bronze_to_silver_3
+          depends_on: [{task_key: *bronze_check_3}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: &silver_check_3 silver_validation_3
+          depends_on: [{task_key: *silver_3}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base, "3"]

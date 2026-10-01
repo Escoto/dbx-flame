@@ -46,6 +46,7 @@ source.origin: csv                # enum: csv | json | sas | delta   (required)
 source.path: /Volumes/.../inbound/      # base volume path
 source.directory: Subjects                # subdirectory
 source.file_extension: txt              # optional; defaults to origin (csv reads *.csv)
+                                        #   any case matches (.txt, .TXT); a leading dot is dropped
 
 source.anchor_dt.column: LAST_MODIFIED_DT  # optional; copied into __ANCHOR_DT as a timestamp
 source.anchor_dt.format: "yyyy-MM-dd HH:mm:ss"  # optional; only when the column is a string
@@ -59,7 +60,7 @@ source.options.delimiter: ","           # csv only (default ",")
 source.options.quote: '"'               # csv only (default "")
 source.options.escape: "\\"             # csv/json (default "\")
 source.options.multiline: true          # csv/json (default true)
-source.options.schema_hints: "ID STRING"  # optional Auto Loader hints; read by json only today
+source.options.schema_hints: "ID STRING"  # json only; optional Auto Loader hints
 
 # delta origin:
 source.schema_name: bronze_main          # schema of the source table

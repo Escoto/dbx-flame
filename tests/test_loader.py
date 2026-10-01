@@ -72,7 +72,7 @@ def test_happy_path_full():
     assert config.source.options.header is False
     assert config.source.options.delimiter == "|"
     assert config.source.options.multiline is False
-    assert config.source.file_extension == ".csv"
+    assert config.source.file_extension == "csv"
     assert config.schema_evolution.value == "add_new_columns"
     assert config.source.snapshot_time_pattern.value == "iso"
     assert config.source.preprocessors == ["trim", "upper"]
@@ -403,3 +403,41 @@ def test_rescue_schema_evolution_rejected():
     assert "schema_evolution" in message
     for mode in ("add_new_columns", "fail_on_new_columns", "none"):
         assert mode in message
+
+
+@pytest.mark.parametrize("value", [".txt", "TXT", " txt "])
+def test_file_extension_is_normalised(value):
+    """A leading dot or upper case would otherwise build a glob that never matches."""
+    config = load_config({**MINIMAL_PARAMS, "source.file_extension": value})
+    assert config.source.file_extension == "txt"
+
+
+@pytest.mark.parametrize("value", ["", "*.csv", "tar.gz", "c/v"])
+def test_file_extension_with_glob_or_path_characters_rejected(value):
+    params = {**MINIMAL_PARAMS, "source.file_extension": value}
+    with pytest.raises(ConfigValidationError, match="source.file_extension"):
+        load_config(params)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        MINIMAL_PARAMS,
+        {**MINIMAL_PARAMS, "source.origin": "sas"},
+        DELTA_PARAMS,
+    ],
+    ids=["csv", "sas", "delta"],
+)
+def test_schema_hints_rejected_outside_json(params):
+    """Elsewhere they'd be a silent no-op, or on CSV a path to silent NULLs."""
+    with pytest.raises(ConfigValidationError, match="schema_hints applies to json only"):
+        load_config({**params, "source.options.schema_hints": "ID STRING"})
+
+
+def test_schema_hints_accepted_on_json():
+    params = {
+        **MINIMAL_PARAMS,
+        "source.origin": "json",
+        "source.options.schema_hints": "ID STRING",
+    }
+    assert load_config(params).source.options.schema_hints == "ID STRING"

@@ -47,6 +47,7 @@ Every one follows the same shape:
 | `scd2_csv_test` | SCD2 with a string anchor date, two successive loads, history chains and validity windows |
 | `scd2_long_backlog_test` | SCD2 with three exports in one batch: one current row per key at its newest version, and keys the last export omits left untouched |
 | `full_csv_long_backlog_test` | FULL with three exports in one batch: the target holds only the newest export |
+| `full_txt_weekly_test` | Weekly pipe-delimited `.txt` snapshots into FULL over three scheduled runs: an unscheduled export arriving between runs lands in Bronze but never reaches Silver |
 | `complete_delta_csv_test` | COMPLETE_DELTA: a multi-snapshot backlog replayed in order, plus a watermark re-run that must be a no-op |
 | `complete_delta_csv_typecasting_test` | A week of daily full exports with a real cast config: type survival through promotion, a 7-column composite key, genuinely empty fields |
 | `complete_delta_csv_typecasting_full_test` | The same fixtures under `snapshot_scope: full`: only the newest export is replayed, with the *identical* current state |

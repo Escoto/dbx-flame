@@ -70,6 +70,23 @@ def test_export_date_reads_only_the_agreed_pattern(spark, name, pattern, expecte
     assert df.select(_export_date(F.col("path"), pattern)).first()[0] == expected
 
 
+def test_export_date_ignores_a_stamp_in_the_folder_names(spark):
+    df = spark.createDataFrame(
+        [
+            ("/Volumes/in/20240101000000/AGENTS_20240115103000.csv",),
+            ("/Volumes/in/20240101000000/AGENTS.csv",),
+        ],
+        "path string",
+    )
+
+    stamps = [
+        row[0]
+        for row in df.select(_export_date(F.col("path"), SnapshotTimePattern.DATETIME)).collect()
+    ]
+
+    assert stamps == [datetime(2024, 1, 15, 10, 30), None]
+
+
 def test_an_unstamped_file_is_refused_before_anything_is_written(spark, tmp_path, ctx):
     df = add_provenance(_read_csv(spark, tmp_path, "AGENTS.csv"), ctx)
 

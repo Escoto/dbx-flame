@@ -107,7 +107,7 @@ def test_a_txt_source_still_uses_the_csv_reader(mock_spark):
     ctx = _context(mock_spark, file_extension="txt")
 
     assert reader_options(ctx)["cloudFiles.format"] == "csv"
-    assert ctx.inbound_glob.endswith("*.txt")
+    assert ctx.inbound_glob.endswith("*.[tT][xX][tT]")
 
 
 def test_read_streams_from_the_resolved_glob(mock_spark):
