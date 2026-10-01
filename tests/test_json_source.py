@@ -117,7 +117,7 @@ def test_read_streams_from_the_resolved_glob(mock_spark):
 
     mock_spark.readStream.format.assert_called_once_with("cloudFiles")
     loaded = mock_spark.readStream.format.return_value.options.return_value.load
-    loaded.assert_called_once_with("/Volumes/in/address/*.json")
+    loaded.assert_called_once_with("/Volumes/in/address/*.[jJ][sS][oO][nN]")
 
 
 # ── the envelope ─────────────────────────────────────────────────────────────

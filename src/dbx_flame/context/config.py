@@ -110,6 +110,17 @@ class SourceConfig(BaseModel):
     # reads nothing rather than the whole backlog since the target last changed.
     increment_anchor: bool = False
 
+    @field_validator("file_extension")
+    @classmethod
+    def _extension_is_bare(cls, value: Optional[str]) -> Optional[str]:
+        # '.csv' would build the glob '*..csv', which matches nothing and still succeeds.
+        if value is None:
+            return None
+        bare = value.strip().removeprefix(".")
+        if not bare.isascii() or not bare.isalnum():
+            raise ValueError(f"expected letters and digits only, e.g. 'txt', got '{value}'")
+        return bare.lower()
+
     @model_validator(mode="after")
     def _require_fields_for_origin(self) -> "SourceConfig":
         """Fail here rather than resolving Context paths to None downstream."""

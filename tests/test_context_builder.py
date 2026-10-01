@@ -125,7 +125,7 @@ def test_inbound_glob_csv(mock_spark):
         source=SourceConfig(origin=Origin.CSV, path="/Volumes/in", directory="agents"),
     )
     ctx = build_context(config, mock_spark, RUN)
-    assert ctx.inbound_glob == "/Volumes/in/agents/*.csv"
+    assert ctx.inbound_glob == "/Volumes/in/agents/*.[cC][sS][vV]"
 
 
 def test_inbound_glob_with_file_extension_override(mock_spark):
@@ -138,7 +138,20 @@ def test_inbound_glob_with_file_extension_override(mock_spark):
         ),
     )
     ctx = build_context(config, mock_spark, RUN)
-    assert ctx.inbound_glob == "/Volumes/in/agents/*.txt"
+    assert ctx.inbound_glob == "/Volumes/in/agents/*.[tT][xX][tT]"
+
+
+def test_inbound_glob_keeps_digits_in_the_extension(mock_spark):
+    config = _make_config(
+        source=SourceConfig(
+            origin=Origin.SAS,
+            path="/Volumes/in",
+            directory="agents",
+            file_extension="sas7bdat",
+        ),
+    )
+    ctx = build_context(config, mock_spark, RUN)
+    assert ctx.inbound_glob == "/Volumes/in/agents/*.[sS][aA][sS]7[bB][dD][aA][tT]"
 
 
 def test_inbound_glob_none_for_delta(mock_spark):

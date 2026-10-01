@@ -46,6 +46,7 @@ source.origin: csv                # enum: csv | json | sas | delta   (required)
 source.path: /Volumes/.../inbound/      # base volume path
 source.directory: Subjects                # subdirectory
 source.file_extension: txt              # optional; defaults to origin (csv reads *.csv)
+                                        #   any case matches (.txt, .TXT); a leading dot is dropped
 
 source.anchor_dt.column: LAST_MODIFIED_DT  # optional; copied into __ANCHOR_DT as a timestamp
 source.anchor_dt.format: "yyyy-MM-dd HH:mm:ss"  # optional; only when the column is a string

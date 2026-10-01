@@ -313,6 +313,11 @@ def _posix_join(*parts: str) -> str:
     return f"/{joined}" if parts and parts[0].startswith("/") else joined
 
 
+def _any_case(extension: str) -> str:
+    """'csv' -> '[cC][sS][vV]': the glob is case-sensitive, and vendors send '.CSV' too."""
+    return "".join(f"[{c.lower()}{c.upper()}]" if c.isalpha() else c for c in extension)
+
+
 def _backtick_fqn(catalog: str, schema: str, table: str) -> str:
     return f"`{catalog}`.`{schema}`.`{table}`"
 
@@ -361,7 +366,7 @@ def build_context(
         path, directory = source.path, source.directory
         assert path and directory  # guaranteed by SourceConfig
         extension = source.file_extension or source.origin.value
-        inbound_glob = _posix_join(path, directory, f"*.{extension}")
+        inbound_glob = _posix_join(path, directory, f"*.{_any_case(extension)}")
 
     base_metadata = _posix_join(
         config.metadata_path, catalog, config.output.schema_name, config.output.table

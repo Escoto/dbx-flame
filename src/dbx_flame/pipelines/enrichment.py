@@ -42,9 +42,13 @@ class UnstampedFileError(Exception):
 
 
 def _export_date(file_path: Column, pattern: SnapshotTimePattern) -> Column:
-    """NULL when the name doesn't match; reject_unstamped turns that into a failure."""
+    """NULL when the name doesn't match; reject_unstamped turns that into a failure.
+
+    Only the file name is searched, so a stamp-shaped folder can't stand in for the file's own.
+    """
     regex, fmt = _PATTERNS[pattern]
-    return F.to_timestamp(F.regexp_extract(file_path, regex, 1), fmt)
+    file_name = F.element_at(F.split(file_path, "/"), -1)
+    return F.to_timestamp(F.regexp_extract(file_name, regex, 1), fmt)
 
 
 def add_provenance(df: DataFrame, ctx: Context) -> DataFrame:
