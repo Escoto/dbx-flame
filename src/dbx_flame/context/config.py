@@ -158,6 +158,14 @@ class SourceConfig(BaseModel):
             # Written once at ingestion; a delta origin carries the column its Bronze wrote.
             problems.append("source.anchor_dt applies to file origins only (csv, json, sas)")
 
+        if self.options.schema_hints and self.origin != Origin.JSON:
+            # CSV already reads every column as STRING; a typed hint would send bad values to
+            # _rescued_data, which sanitization drops, so they'd land as silent NULLs.
+            problems.append(
+                "source.options.schema_hints applies to json only; "
+                "type other origins' columns in typing.cast_config"
+            )
+
         if problems:
             raise ValueError("; ".join(problems))
         return self

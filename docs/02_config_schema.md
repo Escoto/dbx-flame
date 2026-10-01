@@ -60,7 +60,7 @@ source.options.delimiter: ","           # csv only (default ",")
 source.options.quote: '"'               # csv only (default "")
 source.options.escape: "\\"             # csv/json (default "\")
 source.options.multiline: true          # csv/json (default true)
-source.options.schema_hints: "ID STRING"  # optional Auto Loader hints; read by json only today
+source.options.schema_hints: "ID STRING"  # json only; optional Auto Loader hints
 
 # delta origin:
 source.schema_name: bronze_main          # schema of the source table

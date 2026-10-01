@@ -417,3 +417,27 @@ def test_file_extension_with_glob_or_path_characters_rejected(value):
     params = {**MINIMAL_PARAMS, "source.file_extension": value}
     with pytest.raises(ConfigValidationError, match="source.file_extension"):
         load_config(params)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        MINIMAL_PARAMS,
+        {**MINIMAL_PARAMS, "source.origin": "sas"},
+        DELTA_PARAMS,
+    ],
+    ids=["csv", "sas", "delta"],
+)
+def test_schema_hints_rejected_outside_json(params):
+    """Elsewhere they'd be a silent no-op, or on CSV a path to silent NULLs."""
+    with pytest.raises(ConfigValidationError, match="schema_hints applies to json only"):
+        load_config({**params, "source.options.schema_hints": "ID STRING"})
+
+
+def test_schema_hints_accepted_on_json():
+    params = {
+        **MINIMAL_PARAMS,
+        "source.origin": "json",
+        "source.options.schema_hints": "ID STRING",
+    }
+    assert load_config(params).source.options.schema_hints == "ID STRING"
