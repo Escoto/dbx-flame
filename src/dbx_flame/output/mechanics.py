@@ -11,6 +11,7 @@ from pyspark.sql import Window
 from pyspark.sql import functions as F
 
 from dbx_flame.context.config import SchemaEvolution
+from dbx_flame.policies.platform import PlatformPolicy, violate
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -38,13 +39,7 @@ LIVE = "N"
 
 _DEDUP_RANK = "_dedup_rank"
 
-
-class EmptySourceSchemaError(Exception):
-    """Raised when the target does not exist and the batch has no columns to build it."""
-
-
-class UnexpectedColumnsError(Exception):
-    """Raised when a batch carries columns the target lacks and evolution is off."""
+_SOURCE = "mechanics"
 
 
 # The modes under which a batch can arrive carrying a column the target lacks.
@@ -85,10 +80,13 @@ def require_no_new_columns(df: DataFrame, ctx: Context) -> None:
     existing = set(ctx.spark.table(ctx.target_table).columns)
     unexpected = [column for column in df.columns if column not in existing]
     if unexpected:
-        raise UnexpectedColumnsError(
+        violate(
+            ctx,
+            PlatformPolicy.UNEXPECTED_COLUMNS,
+            _SOURCE,
             f"{ctx.target_table} has no column "
             + ", ".join(unexpected)
-            + f"; schema_evolution={ctx.config.schema_evolution.value} does not add them"
+            + f"; schema_evolution={ctx.config.schema_evolution.value} does not add them",
         )
 
 
@@ -128,8 +126,11 @@ def require_creatable(df: DataFrame, ctx: Context) -> None:
         return
     if ctx.spark.catalog.tableExists(ctx.target_table):
         return
-    raise EmptySourceSchemaError(
-        f"Cannot create {ctx.target_table}: the source produced no columns"
+    violate(
+        ctx,
+        PlatformPolicy.EMPTY_SOURCE_SCHEMA,
+        _SOURCE,
+        f"Cannot create {ctx.target_table}: the source produced no columns",
     )
 
 

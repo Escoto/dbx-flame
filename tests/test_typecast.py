@@ -10,9 +10,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from dbx_flame.context.config import TypingConfig
+from dbx_flame.policies.platform import PlatformPolicyViolation
 from dbx_flame.typecast.models import load_cast_configuration
 from dbx_flame.typecast.service import (
-    CastException,
     CastService,
     MissingColumnException,
 )
@@ -220,7 +220,7 @@ def test_a_value_silently_cast_to_null_fails_the_run(spark, service, ctx, tmp_pa
         "columns:\n  - name: AGE\n    cast:\n      target_type: int\n",
     )
 
-    with pytest.raises(CastException, match="AGE"):
+    with pytest.raises(PlatformPolicyViolation, match="AGE"):
         service.apply(df, TypingConfig(cast_config=config), ctx)
 
     logged = ctx.logger.error.call_args
@@ -244,7 +244,7 @@ def test_every_failing_column_is_named_however_noisy_its_neighbour(spark, servic
 """,
     )
 
-    with pytest.raises(CastException) as failure:
+    with pytest.raises(PlatformPolicyViolation) as failure:
         service.apply(df, TypingConfig(cast_config=config), ctx)
 
     reported = json.loads(ctx.logger.error.call_args.kwargs["metadata"])
@@ -266,7 +266,7 @@ def test_one_bad_value_is_enough_to_condemn_a_column(spark, service, ctx, tmp_pa
 """,
     )
 
-    with pytest.raises(CastException):
+    with pytest.raises(PlatformPolicyViolation):
         service.apply(df, TypingConfig(cast_config=config), ctx)
 
     logged = ctx.logger.error.call_args.kwargs

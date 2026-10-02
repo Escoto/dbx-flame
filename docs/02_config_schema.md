@@ -178,7 +178,7 @@ half applies there; the framework works that out rather than asking.
 
 A MERGE is the one write that does not refuse an unexpected column on its own: with
 `autoMerge` off it accepts the batch and discards the column. UPSERT therefore compares
-the batch against the target itself and raises `UnexpectedColumnsError`, so
+the batch against the target itself and raises `PlatformPolicyViolation` (`unexpected_columns`), so
 `fail_on_new_columns` means the same thing on every verb.
 
 ## 5. Cast config file (Layer 3)

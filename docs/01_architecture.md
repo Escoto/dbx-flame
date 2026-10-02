@@ -182,7 +182,7 @@ class Writer(Protocol):
 | Unknown origin / verb | Config validation error (enum) |
 | Source table missing (delta origin) | `RuntimeError` before any write |
 | Target absent + empty incoming schema | Error — there is nothing to define the table from |
-| Cast silent-NULL detected | `CastException` with up-to-5 sample rows per column |
+| Cast silent-NULL detected | `PlatformPolicyViolation` (`cast_silent_null`) with one example value per column |
 | `error`-criticality check failed | `PolicyViolation` after all checks evaluated |
 | Any exception | Audit buffer flushed, exception propagates, task fails |
 

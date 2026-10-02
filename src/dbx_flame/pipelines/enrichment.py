@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from pyspark.sql import functions as F
 
 from dbx_flame.context.config import SnapshotTimePattern
+from dbx_flame.policies.platform import PlatformPolicy, violate
 
 if TYPE_CHECKING:
     from pyspark.sql import Column, DataFrame
@@ -35,10 +36,6 @@ ANCHOR_DT = "__ANCHOR_DT"
 _RESCUED_COLUMN = "_rescued_data"
 
 _SOURCE = "enrichment"
-
-
-class UnstampedFileError(Exception):
-    """Raised when a file name doesn't carry the agreed export stamp."""
 
 
 def _export_date(file_path: Column, pattern: SnapshotTimePattern) -> Column:
@@ -81,8 +78,7 @@ def reject_unstamped(df: DataFrame, ctx: Context) -> None:
         f"{unstamped[0]} doesn't carry a source.snapshot_time_pattern={pattern.value} stamp "
         f"(expected {_PATTERNS[pattern][1]}); nothing from this batch was written"
     )
-    ctx.logger.error(name="unstamped_file", source=_SOURCE, description=message)
-    raise UnstampedFileError(message)
+    violate(ctx, PlatformPolicy.UNSTAMPED_FILE, _SOURCE, message)
 
 
 def sanitize_column_names(df: DataFrame, ctx: Context) -> DataFrame:
@@ -138,10 +134,6 @@ def _select_renamed(df: DataFrame, renames: dict[str, str]) -> DataFrame:
     return df.select([F.col(f"`{old}`").alias(new) for old, new in renames.items()])
 
 
-class AnchorException(Exception):
-    """Raised when source.anchor_dt names a missing column or a value that won't parse."""
-
-
 def stamp_anchor(df: DataFrame, ctx: Context) -> DataFrame:
     """Copy source.anchor_dt into __ANCHOR_DT as a timestamp.
 
@@ -155,7 +147,12 @@ def stamp_anchor(df: DataFrame, ctx: Context) -> DataFrame:
 
     kind = dict(df.dtypes).get(anchor.column)
     if kind is None:
-        raise AnchorException(f"source.anchor_dt.column={anchor.column} is not in the batch")
+        violate(
+            ctx,
+            PlatformPolicy.ANCHOR_COLUMN_MISSING,
+            _SOURCE,
+            f"source.anchor_dt.column={anchor.column} is not in the batch",
+        )
 
     original = F.col(f"`{anchor.column}`")
     if kind == "string":
@@ -179,8 +176,7 @@ def stamp_anchor(df: DataFrame, ctx: Context) -> DataFrame:
             f"{f' with format {anchor.format}' if anchor.format else ''} "
             f"(e.g. {found['example']})"
         )
-        ctx.logger.error(name="anchor_unparseable", source=_SOURCE, description=message)
-        raise AnchorException(message)
+        violate(ctx, PlatformPolicy.ANCHOR_UNPARSEABLE, _SOURCE, message)
 
     if found["missing"]:
         ctx.logger.warning(
