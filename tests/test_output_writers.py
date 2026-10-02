@@ -24,11 +24,8 @@ from dbx_flame.context.context import Context, RunIdentity
 from dbx_flame.output.delta.append import AppendWriter
 from dbx_flame.output.delta.full import FullWriter
 from dbx_flame.output.delta.upsert import UpsertWriter
-from dbx_flame.output.mechanics import (
-    EmptySourceSchemaError,
-    UnexpectedColumnsError,
-    schema_auto_merge,
-)
+from dbx_flame.output.mechanics import schema_auto_merge
+from dbx_flame.policies.platform import PlatformPolicyViolation
 
 RUN = RunIdentity(
     workflow_id="wf-1",
@@ -118,7 +115,7 @@ def test_a_columnless_batch_cannot_create_a_target(spark, database):
     """A target cannot be created from a batch with no schema to create it from."""
     ctx = _ctx(spark, database)
 
-    with pytest.raises(EmptySourceSchemaError, match="no columns"):
+    with pytest.raises(PlatformPolicyViolation, match="no columns"):
         AppendWriter().write(spark.range(0).drop("id"), ctx)
 
 
@@ -334,7 +331,7 @@ def test_upsert_refuses_a_new_column_when_evolution_is_off(spark, database):
     UpsertWriter().write(_people(spark, [("1", "alice", "2024-01-01")]), ctx)
 
     wider = spark.createDataFrame([("1", "alice", "2024-01-02", "al")], WIDER)
-    with pytest.raises(UnexpectedColumnsError, match="NICKNAME"):
+    with pytest.raises(PlatformPolicyViolation, match="NICKNAME"):
         UpsertWriter().write(wider, ctx)
 
     assert "NICKNAME" not in spark.table(f"`{database}`.`TARGET`").columns

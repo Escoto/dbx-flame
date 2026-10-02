@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from pyspark.sql import functions as F
 
+from dbx_flame.policies.platform import PlatformPolicy, violate
 from dbx_flame.typecast.models import CastSpec, load_cast_configuration
 
 if TYPE_CHECKING:
@@ -25,10 +26,6 @@ _FORMATTED_TYPES: dict[str, Callable[..., Column]] = {
     "timestamp": F.to_timestamp,
 }
 _SOURCE = "typecast"
-
-
-class CastException(Exception):
-    """Raised when a non-null value becomes NULL after casting."""
 
 
 class MissingColumnException(Exception):
@@ -167,12 +164,12 @@ class CastService:
             f"{column} (e.g. {value})" for column, value in sorted(offenders.items())
         )
         message = f"Values became NULL after casting: {detail}"
-        ctx.logger.error(
-            name="cast_silent_null",
-            source=_SOURCE,
-            description=message,
+        violate(
+            ctx,
+            PlatformPolicy.CAST_SILENT_NULL,
+            _SOURCE,
+            message,
             # columns affected; the row count is deliberately not gathered
             total=len(offenders),
             metadata=json.dumps(offenders, sort_keys=True),
         )
-        raise CastException(message)

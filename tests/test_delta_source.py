@@ -18,11 +18,8 @@ from dbx_flame.context.config import (
     Verb,
 )
 from dbx_flame.context.context import Context, RunIdentity
-from dbx_flame.pipelines.delta_source import (
-    DEFAULT_WATERMARK,
-    DeltaSource,
-    MissingAnchorError,
-)
+from dbx_flame.pipelines.delta_source import DEFAULT_WATERMARK, DeltaSource
+from dbx_flame.policies.platform import PlatformPolicyViolation
 
 RUN = RunIdentity(
     workflow_id="wf-1",
@@ -294,7 +291,7 @@ def test_an_anchored_read_refuses_a_table_without_anchor_dt(spark, database, uns
     )
     source = DeltaSource()
 
-    with pytest.raises(MissingAnchorError, match=f"`{unstamped}` has no __ANCHOR_DT"):
+    with pytest.raises(PlatformPolicyViolation, match=f"`{unstamped}` has no __ANCHOR_DT"):
         source.read(ctx)
         source.read_deletes(ctx)
 

@@ -12,8 +12,6 @@ from pyspark.sql import functions as F
 
 from dbx_flame.context.config import EventTimeConfig, SnapshotTimePattern
 from dbx_flame.pipelines.enrichment import (
-    AnchorException,
-    UnstampedFileError,
     _export_date,
     add_provenance,
     apply_rename_patterns,
@@ -21,6 +19,7 @@ from dbx_flame.pipelines.enrichment import (
     sanitize_column_names,
     stamp_anchor,
 )
+from dbx_flame.policies.platform import PlatformPolicyViolation
 
 
 @pytest.fixture
@@ -90,7 +89,7 @@ def test_export_date_ignores_a_stamp_in_the_folder_names(spark):
 def test_an_unstamped_file_is_refused_before_anything_is_written(spark, tmp_path, ctx):
     df = add_provenance(_read_csv(spark, tmp_path, "AGENTS.csv"), ctx)
 
-    with pytest.raises(UnstampedFileError, match="AGENTS.csv doesn't carry"):
+    with pytest.raises(PlatformPolicyViolation, match="AGENTS.csv doesn't carry"):
         reject_unstamped(df, ctx)
     assert ctx.logger.error.call_args.kwargs["name"] == "unstamped_file"
 
@@ -240,7 +239,7 @@ def test_a_typed_anchor_is_copied(spark, ctx):
 def test_an_unparseable_anchor_fails_the_batch(spark, ctx):
     df = spark.createDataFrame([("1", "2024-01-15"), ("2", "soon")], "ID string, MODIFIED string")
 
-    with pytest.raises(AnchorException, match="e.g. soon"):
+    with pytest.raises(PlatformPolicyViolation, match="e.g. soon"):
         stamp_anchor(df, _anchored(ctx, format="yyyy-MM-dd"))
     assert ctx.logger.error.call_args.kwargs["name"] == "anchor_unparseable"
 
@@ -262,5 +261,5 @@ def test_a_missing_anchor_is_logged_not_failed(spark, ctx):
 def test_an_anchor_column_not_in_the_batch_fails(spark, ctx):
     df = spark.createDataFrame([("1",)], "ID string")
 
-    with pytest.raises(AnchorException, match="MODIFIED is not in the batch"):
+    with pytest.raises(PlatformPolicyViolation, match="MODIFIED is not in the batch"):
         stamp_anchor(df, _anchored(ctx))

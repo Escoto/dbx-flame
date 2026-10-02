@@ -9,6 +9,7 @@ from pyspark.sql import functions as F
 
 from dbx_flame.context.config import IncrementStrategy
 from dbx_flame.pipelines.enrichment import ANCHOR_DT
+from dbx_flame.policies.platform import PlatformPolicy, violate
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame
@@ -20,10 +21,6 @@ DEFAULT_WATERMARK = datetime(1900, 1, 1)
 
 _EXPORT_DATE = "__EXPORT_DATE"
 _SOURCE = "DeltaSource"
-
-
-class MissingAnchorError(Exception):
-    """Raised when an anchored read meets a table its Bronze did not stamp."""
 
 
 def _anchor_column(ctx: Context) -> str:
@@ -38,8 +35,11 @@ def _anchor_column(ctx: Context) -> str:
 def _require_anchor(ctx: Context, table: str) -> None:
     """An unstamped table would read as NULL anchors: every row silently skipped."""
     if ctx.config.source.increment_anchor and ANCHOR_DT not in ctx.spark.table(table).columns:
-        raise MissingAnchorError(
-            f"{table} has no {ANCHOR_DT}: set source.anchor_dt on the task that ingests it"
+        violate(
+            ctx,
+            PlatformPolicy.ANCHOR_NOT_STAMPED,
+            _SOURCE,
+            f"{table} has no {ANCHOR_DT}: set source.anchor_dt on the task that ingests it",
         )
 
 

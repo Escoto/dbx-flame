@@ -26,6 +26,7 @@ from dbx_flame.output.mechanics import (
     EXPORT_DATE,
     SILVER_TIMESTAMP,
     as_timestamp,
+    require_valid_times,
     key_condition,
 )
 from dbx_flame.pipelines.delta_source import DeltaSource
@@ -59,6 +60,12 @@ class CompleteDeltaWriter:
         # this verb has one. Both reads cut at the same point: the watermark comes from
         # the target, and nothing has been written to it yet.
         deletes = DeltaSource().read_deletes(ctx)
+        if deletes is not None:
+            configured = ctx.config.output.deletes
+            assert configured and configured.event_time  # guaranteed by config validation
+            # Before any snapshot is replayed, so a bad delete can't leave a half-applied run.
+            setting = "output.deletes.event_time.column"
+            require_valid_times(deletes, ctx, [(setting, configured.event_time)])
 
         snapshots = _ordered_snapshots(df, deletes)
         if not snapshots:

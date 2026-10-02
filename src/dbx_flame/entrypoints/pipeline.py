@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from dbx_flame.context.config import FILE_ORIGINS
+from dbx_flame.output.mechanics import compared_times, require_valid_times
 from dbx_flame.output.registry import WRITER_BY_VERB
 from dbx_flame.output.table_config import DeltaTableConfig
 from dbx_flame.pipelines.enrichment import (
@@ -58,6 +59,11 @@ def _gate_and_write(df: DataFrame, ctx: Context, writer: Writer) -> None:
         reject_unstamped(df, ctx)
 
     prepared = prepare(df, ctx)
+
+    # Platform policies before the user's. Only the keyed verbs compare dates; on the
+    # others an event time is unused, so nothing hangs on it parsing.
+    if writer.requires.keys:
+        require_valid_times(prepared, ctx, compared_times(ctx))
     PolicyRunner().run(prepared, ctx)
     writer.write(prepared, ctx)
 
