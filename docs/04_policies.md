@@ -12,6 +12,10 @@ DataFrame and a ruleset, and reads back the verdict. Which checks exist, what ar
 they take and how to express them are DQX's documentation to write, not ours — see the
 [DQX check reference](https://databrickslabs.github.io/dqx/docs/reference/quality_checks/).
 
+These are **user policies**: rules about the business data, opted into per task. They are
+distinct from **platform policies**, the framework's own checks, which a task can't switch
+off ([§9](#9-platform-policies)).
+
 This reverses an earlier native-first design. A hand-rolled rule framework would have
 shipped two checks plus a registry to grow more; DQX ships several dozen validated checks
 on the first day, for one dependency.
@@ -158,3 +162,43 @@ introduces neither. The runner is the only place that would change.
 Unity Catalog tagging (`SET TAGS` upsert, applied when new tag values appear, warning when
 the table is missing) lives in `observability/tagging.py`. It is governance metadata, not a
 dataset rule, so it sits outside the Policies layer.
+
+## 9. Platform policies
+
+Platform policies protect what the framework itself relies on: watermarks, merges and
+history. They aren't configurable, and they're listed in one place, `PlatformPolicy` in
+`policies/platform.py`.
+
+| | Platform policies | User policies |
+|---|---|---|
+| Purpose | Contracts the framework depends on | Rules about the business data |
+| Defined by | The framework | The task's DQX ruleset (`policies.checks_file`) |
+| Can a task switch them off? | No | Yes: no ruleset, no checks |
+| Severity | Always fail the batch | `warn` or `error`, per check |
+
+The platform policies, named as the audit row a violation writes:
+
+| Policy | Fails the batch when |
+|---|---|
+| `unstamped_file` | a file name doesn't carry the agreed export stamp |
+| `anchor_column_missing` | `source.anchor_dt.column` isn't in the batch |
+| `anchor_unparseable` | a `source.anchor_dt` value doesn't parse as a timestamp |
+| `anchor_not_stamped` | an anchored read meets a table without `__ANCHOR_DT` |
+| `cast_silent_null` | a cast turns a present value into NULL |
+| `empty_source_schema` | a new target would be created from a batch with no columns |
+| `unexpected_columns` | a batch carries a new column and `schema_evolution` doesn't add it |
+| `event_time_invalid` | a date a keyed verb compares is missing, blank or doesn't parse |
+
+`event_time_invalid` covers `output.event_time`, `output.dedup.order_by` and, on
+COMPLETE_DELTA, `output.deletes.event_time`. Only UPSERT, SCD2 and COMPLETE_DELTA check it,
+because only they compare dates; a NULL there would otherwise open a second current row,
+skip an update or let dedup keep an arbitrary row.
+
+Each check runs where its data is first available. For a batch, the order is:
+
+```
+unstamped_file → prepare() → event_time_invalid → user policies (DQX) → writer
+```
+
+A violation writes an `ERROR` audit row, flushes the audit log, then raises
+`PlatformPolicyViolation`. Nothing from the batch is written.

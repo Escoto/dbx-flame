@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dbx_flame.context.config import (
+    EventTimeConfig,
     IncrementStrategy,
     Origin,
     OutputConfig,
@@ -17,9 +18,11 @@ from dbx_flame.context.config import (
     Verb,
 )
 from dbx_flame.context.context import Context, RunIdentity
-from dbx_flame.entrypoints.pipeline import prepare, run_pipeline
+from dbx_flame.entrypoints.pipeline import _gate_and_write, prepare, run_pipeline
+from dbx_flame.output.base import Requirements
 from dbx_flame.output.registry import WRITER_BY_VERB
 from dbx_flame.pipelines.registry import SOURCES
+from dbx_flame.policies.platform import PlatformPolicyViolation
 
 RUN = RunIdentity("wf", "wfrun", "task", "taskrun")
 
@@ -161,3 +164,19 @@ def test_unimplemented_origins_fail_at_read_not_at_dispatch(origin):
 
     with pytest.raises(NotImplementedError, match="P6"):
         SOURCES[origin]().read(MagicMock())
+
+
+def test_only_a_keyed_verb_checks_its_event_time(spark):
+    """On APPEND and FULL an event time is unused, so a NULL there mustn't fail the batch."""
+    ctx = _ctx(spark, origin=Origin.DELTA)
+    ctx.config.output.event_time = EventTimeConfig(column="UPDATED")
+    df = spark.createDataFrame([("1", None)], "ID string, UPDATED string")
+
+    unkeyed = MagicMock(requires=Requirements())
+    _gate_and_write(df, ctx, unkeyed)
+    unkeyed.write.assert_called_once()
+
+    keyed = MagicMock(requires=Requirements(keys=True))
+    with pytest.raises(PlatformPolicyViolation, match="event_time_invalid"):
+        _gate_and_write(df, ctx, keyed)
+    keyed.write.assert_not_called()

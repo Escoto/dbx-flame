@@ -24,6 +24,7 @@ class PlatformPolicy(StrEnum):
     CAST_SILENT_NULL = "cast_silent_null"  # a cast never turns a value into NULL
     EMPTY_SOURCE_SCHEMA = "empty_source_schema"  # a new target has columns to build from
     UNEXPECTED_COLUMNS = "unexpected_columns"  # new columns only under add_new_columns*
+    EVENT_TIME_INVALID = "event_time_invalid"  # every compared date is present and parses
 
 
 class PlatformPolicyViolation(Exception):

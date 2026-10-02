@@ -26,9 +26,12 @@ from dbx_flame.context.config import (
     Verb,
 )
 from dbx_flame.context.context import Context, RunIdentity
+from dbx_flame.entrypoints.pipeline import _gate_and_write
 from dbx_flame.output.delta.complete_delta import CompleteDeltaWriter
 from dbx_flame.output.delta.complete_delta import _at as snapshot_rows
 from dbx_flame.output.delta.scd2 import Scd2Writer
+from dbx_flame.output.delta.upsert import UpsertWriter
+from dbx_flame.policies.platform import PlatformPolicyViolation
 
 RUN = RunIdentity(
     workflow_id="wf-1",
@@ -389,3 +392,69 @@ def test_each_snapshot_is_cut_by_a_filter_that_reaches_the_scan(spark, database)
     plan = snapshot_rows(pending, _at(1, 12))._jdf.queryExecution().executedPlan().toString()
 
     assert re.search(r"DataFilters: \[[^\]]*\(__EXPORT_DATE#\d+ = ", plan), plan
+
+
+# --- event_time_invalid (CODE_REVIEW finding 2) ----------------------------
+
+
+def test_scd2_refuses_a_batch_with_a_null_event_time(spark, database):
+    """Unchecked, a NULL falls through the anti-filter and the close: a second current row."""
+    ctx = _ctx(spark, database)
+    Scd2Writer().write(_subjects(spark, [("A", "v1", "2026-01-01 00:00:00")]), ctx)
+
+    with pytest.raises(PlatformPolicyViolation, match=r"UPDATEDTIME: 1 row\(s\) missing"):
+        _gate_and_write(_subjects(spark, [("A", "v2", None)]), ctx, Scd2Writer())
+
+    assert _history(spark, database) == {("A", "v1", _at(1), None, "Y", "N")}
+
+
+def test_upsert_refuses_a_batch_whose_event_time_does_not_parse(spark, database):
+    """Unchecked, newer-wins compares against NULL and silently keeps the old row."""
+    ctx = _ctx(spark, database, verb=Verb.UPSERT)
+    UpsertWriter().write(_subjects(spark, [("A", "v1", "2026-01-01 00:00:00")]), ctx)
+
+    with pytest.raises(PlatformPolicyViolation, match=r"don't parse .* \(e\.g\. soon\)"):
+        _gate_and_write(_subjects(spark, [("A", "v2", "soon")]), ctx, UpsertWriter())
+
+    rows = spark.table(f"`{database}`.`TARGET`").collect()
+    assert {(row["ID"], row["PAYLOAD"]) for row in rows} == {("A", "v1")}
+
+
+def test_complete_delta_refuses_a_backlog_with_a_null_event_time(spark, database):
+    """Checked across the whole backlog, so no snapshot is replayed before it fails."""
+    ctx = _complete_delta_ctx(spark, database)
+    updates = _snapshot_subjects(
+        spark,
+        [("A", "v1", "2026-01-01 00:00:00", 1), ("A", "v2", None, 2)],
+    )
+
+    with pytest.raises(PlatformPolicyViolation, match="UPDATEDTIME"):
+        _gate_and_write(updates, ctx, CompleteDeltaWriter())
+
+    assert not spark.catalog.tableExists(f"`{database}`.`TARGET`")
+
+
+def test_complete_delta_refuses_a_deletes_feed_with_a_null_delete_time(spark, database):
+    """The deletes feed skips the pipeline, so the writer checks it before replaying."""
+    ctx = _complete_delta_ctx(
+        spark,
+        database,
+        deletes_table="DELETIONS",
+        output={
+            "deletes": DeletesConfig(
+                keys=["ID"],
+                event_time=EventTimeConfig(column="DELETEDTIME", format=EVENT_FORMAT),
+            )
+        },
+    )
+    spark.createDataFrame([("B", None, _file(2), _at(2, 12))], DELETIONS).write.format(
+        "delta"
+    ).saveAsTable(f"`{database}`.`DELETIONS`")
+    updates = _snapshot_subjects(spark, [("B", "v1", "2026-01-01 00:00:00", 1)])
+
+    with pytest.raises(
+        PlatformPolicyViolation, match=r"output.deletes.event_time.column=DELETEDTIME"
+    ):
+        CompleteDeltaWriter().write(updates, ctx)
+
+    assert not spark.catalog.tableExists(f"`{database}`.`TARGET`")

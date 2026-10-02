@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from functools import reduce
 from operator import and_
@@ -10,7 +11,7 @@ from typing import TYPE_CHECKING
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from dbx_flame.context.config import SchemaEvolution
+from dbx_flame.context.config import EventTimeConfig, SchemaEvolution
 from dbx_flame.policies.platform import PlatformPolicy, violate
 
 if TYPE_CHECKING:
@@ -118,6 +119,77 @@ def as_timestamp(column: str, fmt: str | None, alias: str | None = None) -> Colu
     """
     value = F.col(f"{alias}.`{column}`" if alias else f"`{column}`")
     return F.to_timestamp(value, fmt) if fmt else value.cast("timestamp")
+
+
+def compared_times(ctx: Context) -> list[tuple[str, EventTimeConfig]]:
+    """The date columns a keyed verb compares or orders rows by, with their setting."""
+    output = ctx.config.output
+    times = []
+    if output.event_time:
+        times.append(("output.event_time.column", output.event_time))
+    if output.dedup.enabled and output.dedup.order_by:
+        order = EventTimeConfig(column=output.dedup.order_by, format=output.dedup.order_by_format)
+        times.append(("output.dedup.order_by", order))
+    return times
+
+
+def require_valid_times(
+    df: DataFrame, ctx: Context, times: list[tuple[str, EventTimeConfig]]
+) -> None:
+    """Fail the batch if a compared date is missing or won't parse, before any write.
+
+    A NULL doesn't drop the row, it falls through every comparison: SCD2 opens a second
+    current row, UPSERT skips the update and dedup keeps an arbitrary row.
+    """
+    if not times:
+        return
+
+    absent = [
+        f"{setting}={time.column}" for setting, time in times if time.column not in df.columns
+    ]
+    if absent:
+        violate(
+            ctx,
+            PlatformPolicy.EVENT_TIME_INVALID,
+            _SOURCE,
+            f"{', '.join(absent)} is not in the batch",
+        )
+
+    checks = []
+    for i, (_, time) in enumerate(times):
+        raw = F.col(f"`{time.column}`")
+        missing = raw.isNull() | (F.trim(raw.cast("string")) == "")
+        unparsed = ~missing & as_timestamp(time.column, time.format).isNull()
+        checks += [
+            F.count(F.when(missing, True)).alias(f"missing_{i}"),
+            F.count(F.when(unparsed, True)).alias(f"unparsed_{i}"),
+            F.first(F.when(unparsed, raw.cast("string")), ignorenulls=True).alias(f"example_{i}"),
+        ]
+    found = df.agg(*checks).collect()[0]
+
+    problems, offenders = [], {}
+    for i, (setting, time) in enumerate(times):
+        missing, unparsed, example = (
+            found[f"{k}_{i}"] for k in ("missing", "unparsed", "example")
+        )
+        if not (missing or unparsed):
+            continue
+        offenders[setting] = {"column": time.column, "missing": missing, "unparseable": unparsed}
+        parts = [f"{missing} row(s) missing"] if missing else []
+        if unparsed:
+            with_format = f" with format {time.format}" if time.format else ""
+            parts.append(f"{unparsed} row(s) don't parse{with_format} (e.g. {example})")
+        problems.append(f"{setting}={time.column}: {', '.join(parts)}")
+
+    if problems:
+        violate(
+            ctx,
+            PlatformPolicy.EVENT_TIME_INVALID,
+            _SOURCE,
+            "; ".join(problems) + "; nothing from this batch was written",
+            total=sum(o["missing"] + o["unparseable"] for o in offenders.values()),
+            metadata=json.dumps(offenders, sort_keys=True),
+        )
 
 
 def require_creatable(df: DataFrame, ctx: Context) -> None:
