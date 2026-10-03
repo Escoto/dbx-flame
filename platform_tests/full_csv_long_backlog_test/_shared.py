@@ -9,7 +9,10 @@ row counts and per-key evolution across the three files are the fixture the test
 exercises, so they are fixed data rather than something rebuilt on every run.
 """
 
-CATALOG = "testing_dev_01"
+import sys
+
+# Every step is called with [base, catalog, env, ...]; the framework resolves the same pair.
+CATALOG = f"{sys.argv[2]}_{sys.argv[3]}"
 SCHEMA = "functional_testing"
 
 BRONZE_TABLE = "STUDY_MILESTONE_CSV_BRONZE_1"

@@ -22,7 +22,7 @@ from _shared import (  # noqa: E402
 )
 from pyspark.sql import SparkSession  # noqa: E402
 
-round_number = sys.argv[2]
+round_number = sys.argv[4]
 seen = SILVER_SEEN[round_number]
 latest = seen[-1]
 

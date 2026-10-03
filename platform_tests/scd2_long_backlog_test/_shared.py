@@ -17,7 +17,10 @@ full_csv_long_backlog_test's fixture, but with two keys the third export
 deliberately omits.
 """
 
-CATALOG = "testing_dev_01"
+import sys
+
+# Every step is called with [base, catalog, env, ...]; the framework resolves the same pair.
+CATALOG = f"{sys.argv[2]}_{sys.argv[3]}"
 SCHEMA = "functional_testing"
 
 BRONZE_TABLE = "STUDY_MILESTONE_SCD2_BACKLOG_BRONZE_1"

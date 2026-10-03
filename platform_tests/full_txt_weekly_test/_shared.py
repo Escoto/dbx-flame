@@ -7,7 +7,10 @@ A provider sends a full snapshot as a pipe-delimited .txt every Monday at 05:00,
 the pipeline runs on Mondays at 10:00. Silver needs only the latest snapshot.
 """
 
-CATALOG = "testing_dev_01"
+import sys
+
+# Every step is called with [base, catalog, env, ...]; the framework resolves the same pair.
+CATALOG = f"{sys.argv[2]}_{sys.argv[3]}"
 SCHEMA = "functional_testing"
 
 BRONZE_TABLE = "SUPPLIER_TXT_BRONZE_1"

@@ -36,7 +36,7 @@ workflow that forgets them is visible in the audit table rather than silently un
 ```yaml
 # ── identity ─────────────────────────────────────────────
 catalog: clinical                 # str, required
-env: dev_01                       # str, required   (always ${bundle.target})
+env: dev                          # str, required   (always ${bundle.target})
 metadata_path: /Volumes/.../metadata/   # str, required
 
 # ── source (Layer 2: Pipeline) ───────────────────────────

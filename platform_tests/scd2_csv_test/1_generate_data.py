@@ -1,6 +1,6 @@
 """Step 1 — drop one CSV export into the inbound directory.
 
-Which export is chosen by the round number the workflow passes as the second
+Which export is chosen by the round number the workflow passes as the fourth
 parameter. One export per round is the point: SCD2 collapses to the latest version
 per key *within* an increment, so landing both at once would dedup ID 1 and leave no
 history to observe. Two rounds is what makes the version chain appear.
@@ -22,7 +22,7 @@ from _shared import EXPORTS, HEADER, INBOUND, SOURCE_DIRECTORY  # noqa: E402
 
 STAMP = "%Y%m%d%H%M%S"
 
-round_number = sys.argv[2]
+round_number = sys.argv[4]
 rows = EXPORTS[round_number]
 
 directory = f"{INBOUND}/{SOURCE_DIRECTORY}"

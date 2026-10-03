@@ -4,7 +4,10 @@ Deliberately dependency-free: these run as spark_python_task on a cluster, not
 under pytest, so a failed assert is what fails the task.
 """
 
-CATALOG = "testing_dev_01"
+import sys
+
+# Every step is called with [base, catalog, env, ...]; the framework resolves the same pair.
+CATALOG = f"{sys.argv[2]}_{sys.argv[3]}"
 SCHEMA = "functional_testing"
 
 BRONZE_TABLE = "COMPLETE_DELTA_CSV_BRONZE_1"

@@ -59,8 +59,8 @@ Platform tests are real Databricks jobs under `platform_tests/`, with their work
 tables. Deploy and run them with:
 
 ```bash
-databricks bundle deploy -t dev_01 -p <profile>
-databricks bundle run integration_test_suite -t dev_01 -p <profile>
+databricks bundle deploy -t dev -p <profile>
+databricks bundle run integration_test_suite -t dev -p <profile>
 ```
 
 A platform test must clean only its own directories and tables. The suite runs its jobs in

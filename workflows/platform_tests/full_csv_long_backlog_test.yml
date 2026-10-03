@@ -15,7 +15,7 @@ generate_script: &generate_script ${workspace.file_path}/platform_tests/full_csv
 bronze_check: &bronze_check ${workspace.file_path}/platform_tests/full_csv_long_backlog_test/2_validate_bronze.py
 silver_check: &silver_check ${workspace.file_path}/platform_tests/full_csv_long_backlog_test/3_validate_silver.py
 
-catalog: &catalog testing
+catalog: &catalog ${var.platform_tests_catalog}
 bronze_table: &bronze_table STUDY_MILESTONE_CSV_BRONZE_1
 silver_table: &silver_table STUDY_MILESTONE_CSV_SILVER_1
 schema: &schema functional_testing
@@ -23,13 +23,13 @@ schema: &schema functional_testing
 shared_params: &shared_params
   catalog: *catalog
   env: "${bundle.target}"
-  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
   schema_evolution: fail_on_new_columns
 
 bronze_params: &bronze_params
   <<: *shared_params
   source.origin: csv
-  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/inbound/
   source.directory: STUDY_MILESTONE_CSV_SOURCE_1
   output.verb: append
   output.schema_name: *schema
@@ -60,7 +60,7 @@ resources:
         - job_cluster_key: &cluster full_csv_long_backlog_test_cluster
           new_cluster:
             spark_version: 15.4.x-scala2.12
-            node_type_id: m5d.large
+            node_type_id: m7gd.large
             num_workers: 0
             data_security_mode: SINGLE_USER
             spark_conf:
@@ -74,14 +74,14 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *cleanup_script
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
 
         - task_key: &generate generate_data
           depends_on: [{task_key: *clean}]
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *generate_script
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
 
         - task_key: &bronze inbound_to_bronze
           depends_on: [{task_key: *generate}]
@@ -99,7 +99,7 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *bronze_check
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
 
         - task_key: &silver bronze_to_silver
           depends_on: [{task_key: *bronze_validation}]
@@ -117,4 +117,4 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *silver_check
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]

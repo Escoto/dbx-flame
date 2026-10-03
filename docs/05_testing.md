@@ -60,8 +60,8 @@ leaked into the target.
 Each test cleans only its own directories and tables, so the whole suite can run in parallel:
 
 ```bash
-databricks bundle deploy -t dev_01 -p <profile>
-databricks bundle run integration_test_suite -t dev_01 -p <profile>
+databricks bundle deploy -t dev -p <profile>
+databricks bundle run integration_test_suite -t dev -p <profile>
 ```
 
 ### Why fixtures are generated, never committed

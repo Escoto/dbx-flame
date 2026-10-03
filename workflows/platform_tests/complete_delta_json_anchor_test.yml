@@ -27,7 +27,7 @@ silver_steady_check: &silver_steady_check ${workspace.file_path}/platform_tests/
 silver_resync_check: &silver_resync_check ${workspace.file_path}/platform_tests/complete_delta_json_anchor_test/3_validate_silver_resync.py
 silver_final_check: &silver_final_check ${workspace.file_path}/platform_tests/complete_delta_json_anchor_test/4_validate_silver_final.py
 
-catalog: &catalog testing
+catalog: &catalog ${var.platform_tests_catalog}
 schema: &schema functional_testing
 
 bronze_full_table: &bronze_full_table ADDRESS_ANCHOR_BRONZE_FULL_1
@@ -37,14 +37,14 @@ silver_table: &silver_table ADDRESS_ANCHOR_SILVER_1
 shared_params: &shared_params
   catalog: *catalog
   env: "${bundle.target}"
-  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
   schema_evolution: fail_on_new_columns
 
 bronze_params: &bronze_params
   <<: *shared_params
   source.origin: json
   source.snapshot_time_pattern: datetime
-  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/inbound/
   source.preprocessors: record_envelope
   # last_modified_dt is lifted and stamped as __ANCHOR_DT, which the delta task
   # anchors on. Both feeds stamp it: the resync's rows set the delta task's anchor.
@@ -105,7 +105,7 @@ resources:
         - job_cluster_key: &cluster complete_delta_json_anchor_test_cluster
           new_cluster:
             spark_version: 15.4.x-scala2.12
-            node_type_id: m5d.large
+            node_type_id: m7gd.large
             num_workers: 0
             data_security_mode: SINGLE_USER
             spark_conf:
@@ -119,7 +119,7 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *cleanup_script
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
 
         # Round one: the pipeline working as usual.
         - task_key: &land_steady land_steady
@@ -127,7 +127,7 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *land_script
-            parameters: [*base, steady]
+            parameters: [*base, *catalog, "${bundle.target}", steady]
 
         - task_key: &bronze_full_steady inbound_to_bronze_full_steady
           depends_on: [{task_key: *land_steady}]
@@ -178,7 +178,7 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *silver_steady_check
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
 
         # Round two: everything sent while the pipeline was paused.
         - task_key: &land_backlog land_backlog
@@ -186,7 +186,7 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *land_script
-            parameters: [*base, backlog]
+            parameters: [*base, *catalog, "${bundle.target}", backlog]
 
         - task_key: &bronze_full inbound_to_bronze_full
           depends_on: [{task_key: *land_backlog}]
@@ -228,7 +228,7 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *silver_resync_check
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
 
         - task_key: &silver_delta bronze_to_silver_delta
           depends_on: [{task_key: *bronze_delta}, {task_key: *silver_resync_check_task}]
@@ -246,4 +246,4 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *silver_final_check
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
