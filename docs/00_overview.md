@@ -75,7 +75,7 @@ Gold is SQL, not a verb. The framework's job ends at Silver.
 | **Deletes feed** | An optional secondary source (a Delta table) carrying delete records, merged as soft deletes. Available to COMPLETE_DELTA. |
 | **Watermark** | `max(__EXPORT_DATE)` already present in the target; an incremental read processes only source rows newer than it. |
 | **Silver metadata contract** | The framework-managed columns: `__FILEPATH`, `__BRONZE_LAST_MODIFIED_DT`, `__SILVER_LAST_MODIFIED_DT`, `__START_DATE`, `__END_DATE`, `__CURRENT_FLAG` (`Y`/`N`), `__DELETED_FLAG` (`Y`/`N`), `__EXPORT_DATE`, and `__ANCHOR_DT` when `source.anchor_dt` is set. |
-| **Audit log contract** | Every run logs to `` `monitoring_{env}`.`audit`.`logs` `` with a fixed schema (`__uuid`, `__workflow_id`, `__workflow_run_id`, `__task_key`, `__task_run_id`, `time_stamp`, `type`, `catalog`, `schema`, `table`, `name`, `source`, `total`, `description`, `metadata`). KPI events use `source="KPI"`. |
+| **Audit log contract** | Every run that passes config validation logs to `` `monitoring_{env}`.`audit`.`logs` `` with a fixed schema (`__uuid`, `__workflow_id`, `__workflow_run_id`, `__task_key`, `__task_run_id`, `time_stamp`, `type`, `catalog`, `schema`, `table`, `name`, `source`, `total`, `description`, `metadata`). KPI events use `source="KPI"`. A run that fails config validation stops before the logger exists: its `ConfigValidationError`, listing every invalid parameter, is only in the task's driver log and run output. |
 | **Medallion layers** | Inbound (raw files on a Volume) → Bronze (raw Delta) → Silver (typed, deduplicated, history-tracked) → Gold (materialized views over Silver, see [Gold](#gold)) → Export (files/outbound). |
 
 ## Document map

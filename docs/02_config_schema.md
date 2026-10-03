@@ -12,7 +12,7 @@ Rules applied by the loader:
 
 - **Coercion**: booleans accept `true`/`false` in any casing, quoted or not; lists accept comma-separated strings (`"ID, NAME"` → `["ID", "NAME"]`); enums are case-insensitive.
 - **Unknown keys are rejected**, so a typo in a parameter name fails the task instead of being silently ignored.
-- **All errors aggregate** into one `ConfigValidationError` listing every problem, so a misconfigured workflow is fixed in one iteration, not one error at a time.
+- **All errors aggregate** into one `ConfigValidationError` listing every problem, so a misconfigured workflow is fixed in one iteration, not one error at a time. It is raised before the audit logger exists, so it reaches the task's driver log and run output, not the audit table.
 
 ## 2. Schema (pydantic model tree)
 
