@@ -128,6 +128,7 @@ resources:
         - task_key: &bronze_full inbound_to_bronze_full
           depends_on: [{task_key: *generate}]
           job_cluster_key: *cluster
+          max_retries: 1
           libraries:
             - whl: ../../dist/*.whl
           python_wheel_task:
@@ -139,6 +140,7 @@ resources:
         - task_key: &bronze_delta inbound_to_bronze_delta
           depends_on: [{task_key: *generate}]
           job_cluster_key: *cluster
+          max_retries: 1
           libraries:
             - whl: ../../dist/*.whl
           python_wheel_task:

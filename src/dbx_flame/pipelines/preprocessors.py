@@ -70,18 +70,10 @@ class RecordEnvelope:
         return items.select(*lifted, _PAYLOAD, _EXPORT_DATE, *carried)
 
 
-class FlattenNested:
-    """Generic recursive flattener: explode arrays, expand structs until flat."""
-
-    name: ClassVar[str] = "flatten_nested"
-
-    def apply(self, df: DataFrame, ctx: Context) -> DataFrame:
-        raise NotImplementedError("P6")
-
-
+# No generic flattener on purpose: exploding nested arrays multiplies rows and denormalizes
+# the data, so how to flatten a payload is the consumer's decision, not the framework's.
 PREPROCESSORS: dict[str, type[PreProcessor]] = {
     "record_envelope": RecordEnvelope,
-    "flatten_nested": FlattenNested,
 }
 
 

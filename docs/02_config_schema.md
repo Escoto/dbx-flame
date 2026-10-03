@@ -134,6 +134,11 @@ Notes:
   pair. Either half alone is a silent no-op — fields with no envelope are never read, and
   an envelope with no fields leaves the batch without a key column — so both are rejected
   at Start.
+- `source.options.multiline` defaults to `true`, which reads each JSON file as one document,
+  as the `record_envelope` export is. A JSON Lines source (one object per line) **must** set
+  it to `false`: under the default, Spark reads only the file's first object and silently
+  drops the rest. For CSV, `true` only costs parallelism, because a file is then read by a
+  single task.
 - There is no single overloaded "mode" parameter: Bronze ingestion uses `output.verb: append|full`, Silver promotion uses `output.verb: scd2|complete_delta|upsert`. The verb alone determines how the write behaves.
 - The physical catalog is `{catalog}_{env}`, so one config serves every environment. Table names are UPPERCASE by convention, and that convention is validated.
 
@@ -175,6 +180,12 @@ does on the read. On the write they reduce to two outcomes: `add_new_columns` an
 
 Any mode is valid for any origin. A delta origin has no Auto Loader, so only the write
 half applies there; the framework works that out rather than asking.
+
+Under `add_new_columns`, a new column fails the run once. This is standard Auto Loader
+behavior: it records the column in the schema location and stops the stream, and the
+restart reads the file with the column included. Give every file-origin task
+`max_retries: 1` so that restart happens within the same run; without it, every run that
+meets a new column fails and the next scheduled run picks it up.
 
 Two writes don't refuse an unexpected column on their own. A MERGE with `autoMerge` off
 accepts the batch and discards the column, and SCD2 (and so COMPLETE_DELTA) commits its

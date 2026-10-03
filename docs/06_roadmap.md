@@ -68,20 +68,22 @@ run or a `warn` letting one through.
 
 ## P6 — Pipeline (JSON + SAS) and pre-processors
 
-- `json_source` (options, tree-schema logging), `record_envelope` + `flatten_nested` pre-processors, `sas_source` (binaryFile discovery, pandas read, empty-file rules, WINDOWS-1252).
+- `json_source` (options, tree-schema logging), the `record_envelope` pre-processor, `sas_source` (binaryFile discovery, pandas read, empty-file rules, WINDOWS-1252).
 
 **Exit**: a JSON envelope fixture and a SAS fixture flow end to end; the pre-processor registry is covered by tests.
 
 *Landed*: `json_source`, the `record_envelope` pre-processor and `source.envelope_fields`, proven
 end to end by `complete_delta_json_full_test` (two feeds, two Bronze tables, one Silver).
 
-*Open*: `sas_source`, `flatten_nested`, the SAS fixture, and `json_source` tree-schema logging.
+*Open*: `sas_source` and the SAS fixture. Schema logging moved to gh #24, for every origin.
 
 ## Out of scope (explicitly deferred)
 
 - File/export writer implementations (`files.py` stays an interface).
 - Quarantining invalid rows to a second target; the gate refuses the batch whole.
 - Source→Inbound retrieval, governance views, export workflows.
+- A generic `flatten_nested` pre-processor: exploding nested arrays multiplies rows and
+  denormalizes the data, so flattening a payload is left to its consumer.
 
 ## Risks & mitigations
 

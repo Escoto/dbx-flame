@@ -18,7 +18,6 @@ from dbx_flame.context.loader import ConfigValidationError, validate_requirement
 from dbx_flame.pipelines import preprocessors
 from dbx_flame.pipelines.preprocessors import (
     PREPROCESSORS,
-    FlattenNested,
     RecordEnvelope,
     apply_preprocessors,
     resolve,
@@ -43,26 +42,25 @@ def _config(names: list[str], fields: list[str] | None = None) -> TaskConfig:
     )
 
 
-def test_both_shapes_are_registered():
-    assert PREPROCESSORS == {
-        "record_envelope": RecordEnvelope,
-        "flatten_nested": FlattenNested,
-    }
+def test_only_the_envelope_is_registered():
+    assert PREPROCESSORS == {"record_envelope": RecordEnvelope}
 
 
-def test_resolve_instantiates_in_configured_order():
-    resolved = resolve(["flatten_nested", "record_envelope"])
+def test_resolve_instantiates_the_named_preprocessors():
+    resolved = resolve(["record_envelope"])
 
-    assert [type(item) for item in resolved] == [FlattenNested, RecordEnvelope]
+    assert [type(item) for item in resolved] == [RecordEnvelope]
 
 
 def test_resolve_with_no_names_is_empty():
     assert resolve([]) == []
 
 
-def test_flatten_nested_is_still_deferred_to_p6():
-    with pytest.raises(NotImplementedError, match="P6"):
-        FlattenNested().apply(MagicMock(), MagicMock())
+def test_flatten_nested_is_rejected_at_start():
+    """It is deliberately not provided, so asking for it must fail rather than do nothing."""
+    errors = validate_requirements(_config(["flatten_nested"]))
+
+    assert any("flatten_nested" in error for error in errors)
 
 
 def test_an_unknown_name_is_rejected_at_start():

@@ -69,7 +69,7 @@ Gold is SQL, not a verb. The framework's job ends at Silver.
 | **Context** | The single typed object produced by the Start layer: validated config + Spark session + job/run identity + logger. The only thing layers share besides DataFrames. |
 | **Origin** | Where the data comes from: `csv`, `json`, `sas`, `delta`. Determines the Pipeline implementation. |
 | **Verb** | How data is written: `append`, `full`, `upsert`, `scd2`, `complete_delta`. Determines the Output implementation. See [03_write_verbs.md](03_write_verbs.md). |
-| **Pre-processor** | A named, config-selected DataFrame transform applied by the Pipeline layer right after reading (e.g. `record_envelope`, `flatten_nested`). |
+| **Pre-processor** | A named, config-selected DataFrame transform applied by the Pipeline layer right after reading (e.g. `record_envelope`). |
 | **Snapshot** | One source export, identified by the timestamp embedded in its file name. COMPLETE_DELTA replays snapshots one by one, in order. |
 | **Snapshot scope** | `delta` (source sends only changes) or `full` (source sends the complete dataset each time, so records absent from a snapshot are expired — deletion by omission). |
 | **Deletes feed** | An optional secondary source (a Delta table) carrying delete records, merged as soft deletes. Available to COMPLETE_DELTA. |

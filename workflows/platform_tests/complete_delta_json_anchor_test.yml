@@ -132,6 +132,7 @@ resources:
         - task_key: &bronze_full_steady inbound_to_bronze_full_steady
           depends_on: [{task_key: *land_steady}]
           job_cluster_key: *cluster
+          max_retries: 1
           libraries:
             - whl: ../../dist/*.whl
           python_wheel_task:
@@ -143,6 +144,7 @@ resources:
         - task_key: &bronze_delta_steady inbound_to_bronze_delta_steady
           depends_on: [{task_key: *land_steady}]
           job_cluster_key: *cluster
+          max_retries: 1
           libraries:
             - whl: ../../dist/*.whl
           python_wheel_task:
@@ -191,6 +193,7 @@ resources:
         - task_key: &bronze_full inbound_to_bronze_full
           depends_on: [{task_key: *land_backlog}]
           job_cluster_key: *cluster
+          max_retries: 1
           libraries:
             - whl: ../../dist/*.whl
           python_wheel_task:
@@ -202,6 +205,7 @@ resources:
         - task_key: &bronze_delta inbound_to_bronze_delta
           depends_on: [{task_key: *land_backlog}]
           job_cluster_key: *cluster
+          max_retries: 1
           libraries:
             - whl: ../../dist/*.whl
           python_wheel_task:

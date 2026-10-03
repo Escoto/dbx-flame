@@ -17,7 +17,7 @@ dbx_flame/
 │   │   ├── json_source.py           #   Auto Loader json
 │   │   ├── sas_source.py            #   Auto Loader binaryFile discovery + pandas.read_sas
 │   │   ├── delta_source.py          #   Delta table origin (checkpoint or watermark increments)
-│   │   ├── preprocessors.py         #   registry: record_envelope, flatten_nested, ...
+│   │   ├── preprocessors.py         #   registry: record_envelope
 │   │   └── enrichment.py            #   provenance columns, column sanitization, rename patterns
 │   ├── typecast/                    # LAYER 3 — Typing
 │   │   ├── models.py                #   CastConfiguration (column specs, formats)
@@ -126,10 +126,10 @@ class PreProcessor(Protocol):
     name: ClassVar[str]
     def apply(self, df: DataFrame, ctx: Context) -> DataFrame: ...
 
-PREPROCESSORS = {"record_envelope": RecordEnvelope, "flatten_nested": FlattenNested}
+PREPROCESSORS = {"record_envelope": RecordEnvelope}
 ```
 
-  `record_envelope` unwraps the common vendor JSON envelope (metadata:export_date + data[] → URI/DATA/EXPORT_DATE); `flatten_nested` is a generic array/struct flattener. Adding a vendor shape = one registered class + config, no changes to `json_source`.
+  `record_envelope` unwraps the common vendor JSON envelope (metadata:export_date + data[] → URI/DATA/EXPORT_DATE). There is deliberately no generic flattener: exploding nested arrays multiplies rows and denormalizes the data, so flattening a payload is left to its consumer. Adding a vendor shape = one registered class + config, no changes to `json_source`.
 - **Enrichment** (shared, applied after pre-processors): provenance columns (`__bronze_last_modified_dt`, `__filePath`, `__EXPORT_DATE` from the file-name regex), column sanitization (replace ` ,;{}()=./`, tab and newline with `_`, uppercase, drop `_rescued_data`), optional structured rename patterns.
 
 ### 3.3 Typing (`dbx_flame.typecast`)

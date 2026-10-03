@@ -95,6 +95,7 @@ resources:
         - task_key: &bronze_1 inbound_to_bronze_1
           depends_on: [{task_key: *generate_1}]
           job_cluster_key: *cluster
+          max_retries: 1
           libraries:
             - whl: ../../dist/*.whl
           python_wheel_task:
@@ -139,6 +140,7 @@ resources:
         - task_key: &bronze_2 inbound_to_bronze_2
           depends_on: [{task_key: *generate_2}]
           job_cluster_key: *cluster
+          max_retries: 1
           libraries:
             - whl: ../../dist/*.whl
           python_wheel_task:
