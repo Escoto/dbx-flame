@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import json
 import sys
+from typing import TYPE_CHECKING
 
 from pyspark.sql import SparkSession
 
 from dbx_flame.context.context import RunIdentity
 from dbx_flame.context.loader import build_context, load_config
 from dbx_flame.entrypoints.pipeline import run_pipeline
+from dbx_flame.output.mechanics import table_version
+
+if TYPE_CHECKING:
+    from dbx_flame.context.context import Context
 
 # Supplied by the workflow as Databricks dynamic values; see docs/03_config_schema.md.
 LOCAL = "local"
@@ -39,6 +44,26 @@ def _run_identity(params: dict[str, str]) -> tuple[RunIdentity, list[str]]:
     defaulted = [name for name in IDENTITY_PARAMS if name not in params]
     values = [params.pop(name, LOCAL) for name in IDENTITY_PARAMS]
     return RunIdentity(*values), defaulted
+
+
+def _log_promotion_start(ctx: Context) -> None:
+    """Record the target's version before any data moves.
+
+    A failure that no retry repairs is undone by restoring the target to this version.
+    """
+    source = ctx.source_table or ctx.inbound_glob
+    version = table_version(ctx)
+    current = (
+        f"Current {ctx.target_table} version #{version}."
+        if version is not None
+        else f"Current {ctx.target_table} version: none (table does not exist yet)."
+    )
+    ctx.logger.info(
+        name="promotion_start",
+        source="run",
+        description=f"Starting data promotion from {source} to {ctx.target_table}.\n{current}",
+        total=version,
+    )
 
 
 def main() -> None:
@@ -72,6 +97,7 @@ def main() -> None:
         description=f"Pipeline dispatched with {len(params)} parameters",
         metadata=json.dumps(params, sort_keys=True),
     )
+    _log_promotion_start(ctx)
     ctx.logger.flush()
 
     try:

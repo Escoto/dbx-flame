@@ -1,6 +1,6 @@
 """Step 1 — land what the provider sent since the previous scheduled run.
 
-The round number, passed as the second parameter, picks the week. Round 3 lands two
+The round number, passed as the fourth parameter, picks the week. Round 3 lands two
 files: Wednesday's accidental push and Monday 3's export, since the pipeline never
 ran in between.
 """
@@ -14,7 +14,7 @@ sys.path.append(sys.argv[1])
 
 from _shared import HEADER, INBOUND, LANDED, SOURCE_DIRECTORY  # noqa: E402
 
-round_number = sys.argv[2]
+round_number = sys.argv[4]
 
 directory = f"{INBOUND}/{SOURCE_DIRECTORY}"
 os.makedirs(directory, exist_ok=True)

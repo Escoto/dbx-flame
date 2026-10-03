@@ -9,7 +9,10 @@ anchors on each record's last_modified_dt, so it applies only the changes made a
 what that export already carries, and dates history by when the record changed.
 """
 
-CATALOG = "testing_dev_01"
+import sys
+
+# Every step is called with [base, catalog, env, ...]; the framework resolves the same pair.
+CATALOG = f"{sys.argv[2]}_{sys.argv[3]}"
 SCHEMA = "functional_testing"
 
 BRONZE_FULL_TABLE = "ADDRESS_ANCHOR_BRONZE_FULL_1"

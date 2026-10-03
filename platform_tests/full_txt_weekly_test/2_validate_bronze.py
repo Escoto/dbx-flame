@@ -19,7 +19,7 @@ from _shared import (  # noqa: E402
 from pyspark.sql import SparkSession  # noqa: E402
 from pyspark.sql import functions as F  # noqa: E402
 
-round_number = sys.argv[2]
+round_number = sys.argv[4]
 expected = BRONZE_EXPORTS[round_number]
 
 spark = SparkSession.builder.getOrCreate()

@@ -12,6 +12,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
+from pyspark.sql import functions as F
 
 from dbx_flame.context.config import (
     DedupConfig,
@@ -20,6 +21,7 @@ from dbx_flame.context.config import (
     IncrementStrategy,
     Origin,
     OutputConfig,
+    SchemaEvolution,
     SnapshotScope,
     SourceConfig,
     TaskConfig,
@@ -57,7 +59,14 @@ def database(spark):
     spark.sql(f"DROP DATABASE IF EXISTS `{name}` CASCADE")
 
 
-def _ctx(spark, database, verb=Verb.SCD2, source=None, **output_overrides):
+def _ctx(
+    spark,
+    database,
+    verb=Verb.SCD2,
+    source=None,
+    schema_evolution=SchemaEvolution.FAIL_ON_NEW_COLUMNS,
+    **output_overrides,
+):
     output = dict(
         verb=verb,
         schema_name="silver",
@@ -70,6 +79,7 @@ def _ctx(spark, database, verb=Verb.SCD2, source=None, **output_overrides):
         catalog="cro",
         env="dev_01",
         metadata_path="/Volumes/meta/",
+        schema_evolution=schema_evolution,
         source=source or SourceConfig(origin=Origin.DELTA, schema_name="bronze", table="SOURCE"),
         output=OutputConfig(**output),
     )
@@ -222,6 +232,38 @@ def test_scd2_prefers_the_newer_export_when_event_times_tie(spark, database):
     assert _history(spark, database) == {("A", "v2", _at(1), None, "Y", "N")}
 
 
+def _with_nickname(df):
+    return df.withColumn("NICKNAME", F.lit("al"))
+
+
+def test_scd2_refuses_a_new_column_before_closing_anything(spark, database):
+    """Refused after the close, the insert would leave A with no current row."""
+    ctx = _ctx(spark, database)
+    writer = Scd2Writer()
+    writer.write(_subjects(spark, [("A", "v1", "2026-01-01 00:00:00")]), ctx)
+
+    wider = _with_nickname(_subjects(spark, [("A", "v2", "2026-01-02 00:00:00")]))
+    with pytest.raises(PlatformPolicyViolation, match="NICKNAME"):
+        writer.write(wider, ctx)
+
+    assert _history(spark, database) == {("A", "v1", _at(1), None, "Y", "N")}
+    assert ctx.logger.error.call_args.kwargs["name"] == "unexpected_columns"
+
+
+def test_scd2_adds_a_new_column_when_evolution_is_on(spark, database):
+    ctx = _ctx(spark, database, schema_evolution=SchemaEvolution.ADD_NEW_COLUMNS)
+    writer = Scd2Writer()
+    writer.write(_subjects(spark, [("A", "v1", "2026-01-01 00:00:00")]), ctx)
+
+    writer.write(_with_nickname(_subjects(spark, [("A", "v2", "2026-01-02 00:00:00")])), ctx)
+
+    assert _history(spark, database) == {
+        ("A", "v1", _at(1), _at(2), "N", "N"),
+        ("A", "v2", _at(2), None, "Y", "N"),
+    }
+    assert "NICKNAME" in spark.table(f"`{database}`.`TARGET`").columns
+
+
 # --- COMPLETE_DELTA --------------------------------------------------------
 
 
@@ -324,6 +366,19 @@ def test_complete_delta_full_scope_expires_records_a_snapshot_no_longer_carries(
         ("A", "v2", _at(2), None, "Y", "N"),
         ("C", "v1", _at(1), _at(2, 12), "N", "N"),
     }
+
+
+def test_complete_delta_full_scope_refuses_a_new_column_before_expiring_anything(spark, database):
+    """Refused after the expiry, the insert would leave the whole table with no current row."""
+    ctx = _complete_delta_ctx(spark, database, output={"snapshot_scope": SnapshotScope.FULL})
+    writer = CompleteDeltaWriter()
+    writer.write(_snapshot_subjects(spark, [("A", "v1", "2026-01-01 00:00:00", 1)]), ctx)
+
+    wider = _with_nickname(_snapshot_subjects(spark, [("A", "v2", "2026-01-02 00:00:00", 2)]))
+    with pytest.raises(PlatformPolicyViolation, match="NICKNAME"):
+        writer.write(wider, ctx)
+
+    assert _history(spark, database) == {("A", "v1", _at(1), None, "Y", "N")}
 
 
 def test_complete_delta_full_scope_replays_only_the_newest_pending_export(spark, database):

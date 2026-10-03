@@ -6,6 +6,11 @@ include:
   - workflows/platform_tests/*.yml
   - workflows/*.yml
 
+variables:
+  platform_tests_catalog:
+    description: Catalog prefix for the platform tests; the framework appends _<target>.
+    default: dbx_flame
+
 artifacts:
   dbx_flame_wheel:
     type: whl
@@ -15,7 +20,7 @@ artifacts:
     path: .
 
 targets:
-  dev_01:
+  dev:
     mode: development
     default: true
     workspace:

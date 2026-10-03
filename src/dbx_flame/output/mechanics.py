@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from datetime import datetime
 
-    from pyspark.sql import Column, DataFrame
+    from pyspark.sql import Column, DataFrame, Row
 
     from dbx_flame.context.context import Context
 
@@ -70,10 +70,10 @@ def merge_schema(ctx: Context) -> str:
 def require_no_new_columns(df: DataFrame, ctx: Context) -> None:
     """Refuse a batch carrying columns the target lacks, when evolution is off.
 
-    Every other verb gets this refusal from Delta itself, because mergeSchema=false
-    rejects the write. A MERGE has no such option: with autoMerge off it accepts the
-    batch and discards the unmatched column. Checking by hand here is what makes
-    schema_evolution mean the same thing on an UPSERT as it does everywhere else.
+    A single append or overwrite gets this refusal from Delta itself, because
+    mergeSchema=false rejects the write. Two writes need it by hand: a MERGE, which with
+    autoMerge off accepts the batch and discards the unmatched column, and SCD2, whose
+    insert only runs after the close has already committed.
     """
     if merge_schema(ctx) == "true":
         return
@@ -279,10 +279,23 @@ def log_rows_written(ctx: Context, event: str, source: str) -> None:
     Counting the batch would mean a second pass over the source; the table's last
     commit already knows exactly how many rows landed.
     """
-    history = ctx.spark.sql(f"DESCRIBE HISTORY {ctx.target_table} LIMIT 1").collect()
-    metrics = (history[0]["operationMetrics"] or {}) if history else {}
+    commit = _last_commit(ctx)
+    metrics = (commit["operationMetrics"] or {}) if commit else {}
     written = metrics.get("numOutputRows") or metrics.get("numTargetRowsInserted") or 0
 
     ctx.logger.kpi(
         name=event, total=int(written), description=f"{source} wrote to {ctx.target_table}"
     )
+
+
+def table_version(ctx: Context) -> int | None:
+    """The target's current Delta version, or None when it doesn't exist yet."""
+    if not ctx.spark.catalog.tableExists(ctx.target_table):
+        return None
+    commit = _last_commit(ctx)
+    return commit["version"] if commit else None
+
+
+def _last_commit(ctx: Context) -> Row | None:
+    history = ctx.spark.sql(f"DESCRIBE HISTORY {ctx.target_table} LIMIT 1").collect()
+    return history[0] if history else None

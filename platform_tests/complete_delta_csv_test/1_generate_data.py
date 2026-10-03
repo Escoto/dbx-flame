@@ -23,7 +23,7 @@ from _shared import HEADER, INBOUND, ROUNDS, SOURCE_DIRECTORY  # noqa: E402
 
 STAMP = "%Y-%m-%dT%H:%M:%S"
 
-round_number = sys.argv[2]
+round_number = sys.argv[4]
 exports = ROUNDS[round_number]
 
 directory = f"{INBOUND}/{SOURCE_DIRECTORY}"

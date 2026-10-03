@@ -24,7 +24,7 @@ bronze_check: &bronze_check ${workspace.file_path}/platform_tests/complete_delta
 silver_full_check: &silver_full_check ${workspace.file_path}/platform_tests/complete_delta_json_full_test/3_validate_silver_full.py
 silver_final_check: &silver_final_check ${workspace.file_path}/platform_tests/complete_delta_json_full_test/4_validate_silver_final.py
 
-catalog: &catalog testing
+catalog: &catalog ${var.platform_tests_catalog}
 schema: &schema functional_testing
 
 bronze_full_table: &bronze_full_table ADDRESS_JSON_BRONZE_FULL_1
@@ -34,7 +34,7 @@ silver_table: &silver_table ADDRESS_JSON_SILVER_1
 shared_params: &shared_params
   catalog: *catalog
   env: "${bundle.target}"
-  metadata_path: /Volumes/testing_${bundle.target}/functional_testing/source_data/metadata/
+  metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
   schema_evolution: fail_on_new_columns
 
 # Common to both feeds: only the directory and the target table differ.
@@ -42,7 +42,7 @@ bronze_params: &bronze_params
   <<: *shared_params
   source.origin: json
   source.snapshot_time_pattern: datetime
-  source.path: /Volumes/testing_${bundle.target}/functional_testing/source_data/inbound/
+  source.path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/inbound/
   source.preprocessors: record_envelope
   # Lifted into columns of their own; everything else stays inside DATA.
   source.envelope_fields: uri, status
@@ -100,7 +100,7 @@ resources:
         - job_cluster_key: &cluster complete_delta_json_full_test_cluster
           new_cluster:
             spark_version: 15.4.x-scala2.12
-            node_type_id: m5d.large
+            node_type_id: m7gd.large
             num_workers: 0
             data_security_mode: SINGLE_USER
             spark_conf:
@@ -114,14 +114,14 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *cleanup_script
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
 
         - task_key: &generate generate_data
           depends_on: [{task_key: *clean}]
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *generate_script
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
 
         # The two feeds land independently — separate directories, separate tables,
         # and so separate checkpoints.
@@ -152,7 +152,7 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *bronze_check
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
 
         # Full before delta: the baseline has to exist before the delta feed merges.
         - task_key: &silver_full bronze_to_silver_full
@@ -171,7 +171,7 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *silver_full_check
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]
 
         - task_key: &silver_delta bronze_to_silver_delta
           depends_on: [{task_key: *silver_full_check_task}]
@@ -189,4 +189,4 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *silver_final_check
-            parameters: [*base]
+            parameters: [*base, *catalog, "${bundle.target}"]

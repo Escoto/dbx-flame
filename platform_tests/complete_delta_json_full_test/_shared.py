@@ -10,8 +10,10 @@ projects to URI/STATUS/DATA/EXPORT_DATE whatever the payload does.
 """
 
 import json
+import sys
 
-CATALOG = "testing_dev_01"
+# Every step is called with [base, catalog, env, ...]; the framework resolves the same pair.
+CATALOG = f"{sys.argv[2]}_{sys.argv[3]}"
 SCHEMA = "functional_testing"
 
 # Two inbound feeds, two bronze tables, one silver — the production shape. The full

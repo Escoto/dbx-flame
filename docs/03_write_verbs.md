@@ -66,9 +66,10 @@ Every table the framework writes also keeps `delta.dataSkippingStatsColumns` (se
 3. Add `__SILVER_LAST_MODIFIED_DT`; drop `__BRONZE_LAST_MODIFIED_DT`.
 4. Target absent → create with metadata init (`__START_DATE` = event_time or now, `__END_DATE` = NULL, flags Y/N).
 5. Target present:
-   a. **Anti-filter**: drop source rows whose event_time ≤ the target's current row's event_time for the same keys (idempotent re-runs, late/duplicate files are no-ops).
-   b. **Close**: Delta merge — matched current, not-deleted rows with older event_time get `__END_DATE` = source event_time, `__CURRENT_FLAG` = 'N'.
-   c. **Insert**: surviving source rows appended as new current rows.
+   a. **Schema check**: a column the target lacks is refused (`unexpected_columns`) unless `schema_evolution` adds it. It runs before anything commits: steps b and c are separate commits, so an insert refused after the close would leave those keys with no current row.
+   b. **Anti-filter**: drop source rows whose event_time ≤ the target's current row's event_time for the same keys (idempotent re-runs, late/duplicate files are no-ops).
+   c. **Close**: Delta merge — matched current, not-deleted rows with older event_time get `__END_DATE` = source event_time, `__CURRENT_FLAG` = 'N'.
+   d. **Insert**: surviving source rows appended as new current rows.
 
 Note: SCD2 collapses to *latest per key within the processed increment* (step 2). If the increment contains v1→v2→v3 of the same key, Silver records the transition current-state → v3. A backlog split across several micro-batches leaves one history row per batch, and the current row is always the newest. When **every** intermediate version must appear in history, use COMPLETE_DELTA.
 

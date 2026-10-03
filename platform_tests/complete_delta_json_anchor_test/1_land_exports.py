@@ -1,6 +1,6 @@
 """Step 1 — land one round of the committed exports in their inbound directories.
 
-The second parameter names the round: "steady" lands the pipeline working as usual,
+The fourth parameter names the round: "steady" lands the pipeline working as usual,
 "backlog" lands everything the upstream system sent after it.
 """
 
@@ -16,7 +16,7 @@ from _shared import INBOUND, ROUNDS  # noqa: E402
 
 samples = f"{sys.argv[1]}/sample_data"
 
-for export, directory in ROUNDS[sys.argv[2]]:
+for export, directory in ROUNDS[sys.argv[4]]:
     target = f"{INBOUND}/{directory}"
     os.makedirs(target, exist_ok=True)
 

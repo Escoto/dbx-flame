@@ -128,12 +128,12 @@ default over changing behaviour for every task. Greenfield: "parity" is never a 
   - Assert the audit row (`ctx.logger.error.call_args.kwargs`) for every failure path.
 - **Platform** (`platform_tests/<name>/` + `workflows/platform_tests/<name>.yml`):
   - Steps: `_shared.py` (constants and asserts), `0_cleanup.py`, `1_generate_data.py`,
-    `2_validate_bronze.py`, `3_validate_silver.py`. Scripts take `[*base, round]`.
+    `2_validate_bronze.py`, `3_validate_silver.py`. Scripts take `[*base, *catalog, env, round]`.
   - Clean **only** the test's own tables and directories; the suite runs in parallel.
   - Fixtures are deterministic and small; assert exact rows, not just counts.
   - Register the job in `workflows/integration_test_suite.yml` and add a row to
     `docs/05_testing.md`.
-  - Validate with `databricks bundle validate -t dev_01` before handing over.
+  - Validate with `databricks bundle validate -t dev` before handing over.
 
 ## 6. GitHub issues
 

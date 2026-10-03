@@ -171,7 +171,7 @@ class Writer(Protocol):
 
 ## 4. Observability
 
-- `AuditLogger` writes the audit contract (`` `monitoring_{env}`.`audit`.`logs` ``, fixed schema, partitioned, auto-created) and **buffers** entries, flushing per stage transition and on any failure so a crash cannot lose the trail. API: `info/warning/error(name, source, description, total)`, plus `kpi(name, total, description)` for the named KPI events dashboards query.
+- `AuditLogger` writes the audit contract (`` `monitoring_{env}`.`audit`.`logs` ``, fixed schema, partitioned, auto-created) and **buffers** entries, flushing per stage transition and on any failure so a crash cannot lose the trail. Every entry is also printed to the driver log as it is logged, so a run whose flush never lands still leaves its trail there. Each run records `promotion_start` with the target's Delta version before any data moves: the version to restore when a failure is beyond what a retry repairs. API: `info/warning/error(name, source, description, total)`, plus `kpi(name, total, description)` for the named KPI events dashboards query.
 - Errors always **raise**; logging never swallows control flow.
 
 ## 5. Error handling model

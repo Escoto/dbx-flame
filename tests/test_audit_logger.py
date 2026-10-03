@@ -244,3 +244,14 @@ def test_identity_columns_populated(spark, audit_db):
     assert row["__workflow_run_id"] == "wfrun-9"
     assert row["__task_key"] == "bronze_to_silver"
     assert row["__task_run_id"] == "taskrun-9"
+
+
+def test_every_entry_is_echoed_to_the_console(spark, audit_db, capsys):
+    """The driver log keeps the trail even when the flush to the audit table never happens."""
+    logger = _make_logger(spark, audit_db)
+    logger.info("step_a", "src", "first line\nsecond line")
+    logger.kpi("rows_appended", total=3, description="AppendWriter wrote")
+
+    printed = capsys.readouterr().out
+    assert "INFO src.step_a: first line\nsecond line" in printed
+    assert "INFO KPI.rows_appended (total=3): AppendWriter wrote" in printed

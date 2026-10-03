@@ -36,7 +36,7 @@ workflow that forgets them is visible in the audit table rather than silently un
 ```yaml
 # ── identity ─────────────────────────────────────────────
 catalog: clinical                 # str, required
-env: dev_01                       # str, required   (always ${bundle.target})
+env: dev                          # str, required   (always ${bundle.target})
 metadata_path: /Volumes/.../metadata/   # str, required
 
 # ── source (Layer 2: Pipeline) ───────────────────────────
@@ -176,10 +176,12 @@ does on the read. On the write they reduce to two outcomes: `add_new_columns` an
 Any mode is valid for any origin. A delta origin has no Auto Loader, so only the write
 half applies there; the framework works that out rather than asking.
 
-A MERGE is the one write that does not refuse an unexpected column on its own: with
-`autoMerge` off it accepts the batch and discards the column. UPSERT therefore compares
-the batch against the target itself and raises `PlatformPolicyViolation` (`unexpected_columns`), so
-`fail_on_new_columns` means the same thing on every verb.
+Two writes don't refuse an unexpected column on their own. A MERGE with `autoMerge` off
+accepts the batch and discards the column, and SCD2 (and so COMPLETE_DELTA) commits its
+close before the insert that Delta would refuse. UPSERT, SCD2 and COMPLETE_DELTA therefore
+compare the batch against the target before their first commit and raise
+`PlatformPolicyViolation` (`unexpected_columns`), so `fail_on_new_columns` means the same
+thing on every verb.
 
 ## 5. Cast config file (Layer 3)
 
