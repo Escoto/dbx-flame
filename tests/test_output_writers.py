@@ -24,7 +24,7 @@ from dbx_flame.context.context import Context, RunIdentity
 from dbx_flame.output.delta.append import AppendWriter
 from dbx_flame.output.delta.full import FullWriter
 from dbx_flame.output.delta.upsert import UpsertWriter
-from dbx_flame.output.mechanics import schema_auto_merge
+from dbx_flame.output.mechanics import schema_auto_merge, table_version
 from dbx_flame.policies.platform import PlatformPolicyViolation
 
 RUN = RunIdentity(
@@ -109,6 +109,18 @@ def test_append_reports_the_rows_it_wrote(spark, database):
     kpi = ctx.logger.kpi.call_args
     assert kpi.kwargs["name"] == "rows_appended"
     assert kpi.kwargs["total"] == 2
+
+
+def test_table_version_follows_each_commit_and_is_none_before_the_first(spark, database):
+    ctx = _ctx(spark, database)
+    assert table_version(ctx) is None
+
+    writer = AppendWriter()
+    writer.write(_people(spark, [("1", "alice", "2024-01-01")]), ctx)
+    first = table_version(ctx)
+    writer.write(_people(spark, [("2", "bob", "2024-01-02")]), ctx)
+
+    assert table_version(ctx) == first + 1
 
 
 def test_a_columnless_batch_cannot_create_a_target(spark, database):

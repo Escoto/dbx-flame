@@ -118,9 +118,15 @@ class AuditLogger:
         name: str,
         source: str,
         description: str,
-        total: int,
+        total: int | None,
         metadata: str | None,
     ) -> None:
+        now = datetime.now()
+        # Echoed as well as buffered: a run that dies before its flush still leaves the
+        # trail in the driver log.
+        count = f" (total={total})" if total else ""
+        print(f"{now:%Y-%m-%d %H:%M:%S} {level} {source}.{name}{count}: {description}", flush=True)
+
         self._buffer.append(
             (
                 str(uuid.uuid4()),
@@ -128,7 +134,7 @@ class AuditLogger:
                 self._run.workflow_run_id,
                 self._run.task_key,
                 self._run.task_run_id,
-                datetime.now(),
+                now,
                 level,
                 self._catalog,
                 self._schema,
@@ -146,7 +152,7 @@ class AuditLogger:
         name: str,
         source: str,
         description: str,
-        total: int = 0,
+        total: int | None = 0,
         metadata: str | None = None,
     ) -> None:
         self._log("INFO", name, source, description, total, metadata)

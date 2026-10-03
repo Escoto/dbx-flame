@@ -29,6 +29,7 @@ from dbx_flame.output.mechanics import (
     open_history,
     promote,
     require_creatable,
+    require_no_new_columns,
 )
 from dbx_flame.output.table_config import DeltaTableConfig
 
@@ -93,6 +94,10 @@ def merge_history(df: DataFrame, ctx: Context, snapshot: Optional[datetime] = No
             description=f"No records to merge into {ctx.target_table}",
         )
         return
+
+    # Before the first commit: the expiry and the close commit on their own, so an insert
+    # refused after them would leave the keys they closed with no current row.
+    require_no_new_columns(prepared, ctx)
 
     # Only COMPLETE_DELTA reaches this: SCD2 rejects snapshot_scope=full at Start.
     if ctx.config.output.snapshot_scope == SnapshotScope.FULL:
