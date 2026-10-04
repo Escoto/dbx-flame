@@ -64,6 +64,33 @@ databricks bundle deploy -t dev -p <profile>
 databricks bundle run integration_test_suite -t dev -p <profile>
 ```
 
+### Workspace prerequisites
+
+The framework names every catalog `{catalog}_{env}`; for the tests that is
+`${var.platform_tests_catalog}_${bundle.target}` (`dbx_flame_dev`). Scripts cannot create
+Unity Catalog objects, so a new workspace needs these once:
+
+| Object | Used for |
+|---|---|
+| `<catalog>_<target>.functional_testing` (schema) | test tables |
+| `<catalog>_<target>.functional_testing.source_data` (volume) | inbound files and checkpoints |
+| `monitoring_<target>.audit` (schema) | the audit table, created on first run |
+
+Every test script takes `[base, catalog, env, ...]` and builds the catalog the same way.
+
+### Debugging a failed run
+
+The suite run only says which test failed. To reach the error:
+
+```bash
+databricks jobs get-run <suite-run-id>          # each test task's run_job_task.job_id
+databricks jobs list-runs --job-id <job-id> --limit 1
+databricks jobs get-run <test-run-id>           # the failed task and its run_id
+databricks jobs get-run-output <task-run-id>    # error and error_trace
+```
+
+A cluster that never started shows its reason in the task's `state_message` instead.
+
 ### Why fixtures are generated, never committed
 
 The tests build their own CSVs at run time from a `_shared.py` module that also holds the

@@ -8,18 +8,21 @@ This is a configuration-driven Data Processing Framework for ingesting data into
 The framework supports a multi-layer medallion architecture (Source → Inbound → Bronze → Silver → Gold) and 
 is deployed via Databricks Declarative Automation Bundles (Previously Databricks Asset Bundles).
 
-**Tech Stack**: Python 3.11, PySpark 15.4.x-scala2.12, Databricks, Delta Lake, DQX, Pandas
+**Tech Stack**: Python 3.11, Databricks Runtime 15.4 LTS (PySpark 3.5), Delta Lake, DQX, Pandas
 
 ## Running anything
 
-Targets native Linux. Run pytest, black, flake8, mypy, ruff and `databricks` directly:
+Targets native Linux. Run `poetry install` once, then every tool through Poetry;
+`databricks` and `gh` run directly:
 
 ```bash
-poetry run pytest
+poetry run pytest tests/test_history_writers.py   # while iterating: only the files you touch
+make test                                          # before handing over: full suite, ~7 min
+poetry run python <script>                         # there is no bare `python` on PATH
 ```
 
-Python is 3.11 — matching Databricks Runtime 15.4 LTS. Invoke it as `python`, never
-`python3`. Needs a JDK (PySpark) and Poetry with a 3.11 interpreter; see [README.md](README.md#development).
+Python is 3.11, matching Databricks Runtime 15.4 LTS. Needs a JDK (PySpark) and Poetry with a
+3.11 interpreter; see [README.md](README.md#development).
 
 **If this Claude session is running on Windows**, run everything (including `databricks`
 commands, which read the CLI profile from there) through WSL instead:
@@ -35,6 +38,11 @@ wsl -d Ubuntu-24.04 -- bash -lc 'cd /mnt/c/repos/escoto/dbx-flame && poetry run 
 - Comments explain *why*, not *what*. A comment that restates the code earns its deletion.
 - This is a greenfield project. It has no predecessor to stay compatible with, so
   "parity" is never a reason to do (or not to do) something.
+- Every catalog is `{catalog}_{env}`: `catalog: mdm` with `env: dev` resolves to `mdm_dev`.
+  The audit table is `monitoring_{env}.audit.logs`.
+- **Classic job clusters only.** Serverless is not supported yet. It rejects or breaks three
+  things the framework does: SCD2 caches a DataFrame, UPSERT sets an autoMerge Spark conf,
+  and `foreachBatch` captures the `Context`.
 
 ## Architecture
 
@@ -67,10 +75,19 @@ A platform test must clean only its own directories and tables. The suite runs i
 parallel, so a wholesale cleanup of the shared inbound or metadata roots would destroy a
 neighbour's checkpoints mid-run.
 
+A new workspace needs its schemas and volume created once, and a failed run is traced
+through the CLI; both are in [05_testing.md](docs/05_testing.md#workspace-prerequisites).
+
+## Skills
+
+- `flame-data-engineer`: before writing or reviewing any code, config, workflow YAML or docs.
+- `flame-pm`: choosing, evaluating, writing and labelling GitHub issues.
+- `flame-data-setup`: onboarding a dataset, from raw files to Silver.
+- `pharma-regulations`: GxP and ALCOA+ guidance for regulated data.
+
 ## Planning
 
-All work is tracked in GitHub issues; there is no TODO file. To choose what to work on,
-evaluate an issue, or write and label a new one, use the `flame-pm` skill.
+All work is tracked in GitHub issues; there is no TODO file. See the `flame-pm` skill.
 
 ## Editing files from Windows
 
