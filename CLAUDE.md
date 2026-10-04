@@ -67,6 +67,11 @@ A platform test must clean only its own directories and tables. The suite runs i
 parallel, so a wholesale cleanup of the shared inbound or metadata roots would destroy a
 neighbour's checkpoints mid-run.
 
+## Planning
+
+All work is tracked in GitHub issues; there is no TODO file. To choose what to work on,
+evaluate an issue, or write and label a new one, use the `flame-pm` skill.
+
 ## Editing files from Windows
 
 Bash heredocs mangle `\n` escapes in this environment. When a patch contains them, write the

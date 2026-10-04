@@ -15,8 +15,8 @@ This skill covers *how* to build here. Follow it in every session, whatever the 
   approved work need no second approval.
 - **Never commit or push.** The project runs in a regulated environment. The user also
   creates branches, deploys and runs platform tests; you may monitor runs with the CLI.
-- **Run everything through WSL** (`wsl -d Ubuntu-24.04 -- bash -lc '...'`), including
-  `gh`, `databricks` and `poetry`.
+- **Run natively on Linux**: `poetry`, `gh` and `databricks` directly. Only when the
+  session runs on Windows, run them through WSL (`wsl -d Ubuntu-24.04 -- bash -lc '...'`).
 - **Keep answers short.** Report what changed, what was verified, and what's left open.
 - **Ask before posting** anything to GitHub, except an issue the user asked you to create.
 
@@ -137,27 +137,11 @@ default over changing behaviour for every task. Greenfield: "parity" is never a 
 
 ## 6. GitHub issues
 
-Short and easy to read, without implementation details:
-
-```markdown
-## Description
-**Current behavior:** 1–2 sentences.
-**Expected behavior:** 1–2 sentences.
-
-## Deliverables
-1. ...
-
-## Acceptance criteria
-- [ ] ...
-```
-
-When a decision changes an issue's scope, record it as a comment on the issue (what was
-decided, and why) before it closes. `CODE_REVIEW.md` lists only findings without an
-issue: strike a finding through and note "Tracked in #N" or "Fixed" when that changes.
+Writing, labelling and choosing issues follows the `flame-pm` skill.
 
 ## 7. Windows editing
 
-Bash heredocs mangle `\n` escapes here. For a multi-line patch, write a Python script to
+On Windows, Bash heredocs mangle `\n` escapes. For a multi-line patch there, write a Python script to
 the scratchpad with the Write tool and run it by path. Each replacement asserts its
 target matches exactly once.
 
