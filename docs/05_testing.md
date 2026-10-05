@@ -68,7 +68,8 @@ databricks bundle run integration_test_suite -t dev -p <profile>
 
 The framework names every catalog `{catalog}_{env}`; for the tests that is
 `${var.platform_tests_catalog}_${bundle.target}` (`dbx_flame_dev`). Scripts cannot create
-Unity Catalog objects, so a new workspace needs these once:
+Unity Catalog objects, so a new workspace needs these once. The step-by-step recipe, with
+SQL and grants, is [07_workspace_setup.md](07_workspace_setup.md).
 
 | Object | Used for |
 |---|---|

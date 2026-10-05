@@ -95,6 +95,7 @@ output.dedup.order_by_format: "M/d/yyyy h:mm:ss a"  # optional
 output.deletes.keys: "ID"               # deletes feed join keys
 output.deletes.event_time.column: DATE_DELETED
 output.deletes.event_time.format: yyyyMMddHHmmss
+output.tags.project: dbx-flame          # Unity Catalog tags on the target, one key per tag
 ```
 
 Notes:

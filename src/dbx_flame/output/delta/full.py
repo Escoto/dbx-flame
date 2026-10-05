@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar
 from pyspark.sql import functions as F
 
 from dbx_flame.context.config import Verb
+from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.mechanics import (
     EXPORT_DATE,
@@ -73,7 +74,7 @@ class FullWriter:
             .options(**DeltaTableConfig(ctx).write_options(promoted))
             .saveAsTable(ctx.target_table)
         )
-        log_rows_written(ctx, event="rows_overwritten", source=_SOURCE)
+        log_rows_written(ctx, event=Kpi.ROWS_OVERWRITTEN, source=_SOURCE)
 
 
 def _applied_export(ctx: Context) -> datetime | None:

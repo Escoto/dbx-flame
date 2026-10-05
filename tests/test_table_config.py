@@ -73,6 +73,7 @@ def _ctx(spark, table) -> MagicMock:
     ctx = MagicMock()
     ctx.spark = spark
     ctx.target_table = table
+    ctx.config.output.tags = {}
     return ctx
 
 
@@ -120,3 +121,13 @@ def test_apply_does_nothing_before_the_table_exists(spark, table):
     DeltaTableConfig(ctx).apply()
 
     ctx.logger.info.assert_not_called()
+
+
+def test_apply_also_applies_the_task_tags(spark, table, monkeypatch):
+    tagged = MagicMock()
+    monkeypatch.setattr("dbx_flame.output.table_config.apply_tags", tagged)
+    ctx = _ctx(spark, table)
+
+    DeltaTableConfig(ctx).apply()
+
+    tagged.assert_called_once_with(ctx)

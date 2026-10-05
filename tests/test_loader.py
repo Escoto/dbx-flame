@@ -185,6 +185,19 @@ def test_nested_model_defaults():
     assert config.typing.validate_casts is True
     assert config.policies.checks_file is None
     assert config.schema_evolution.value == "fail_on_new_columns"
+    assert config.output.tags == {}
+
+
+def test_output_tags_are_collected_by_name():
+    params = {
+        **MINIMAL_PARAMS,
+        "output.tags.project": "dbx-flame",
+        "output.tags.environment": "dev",
+    }
+
+    config = load_config(params)
+
+    assert config.output.tags == {"project": "dbx-flame", "environment": "dev"}
 
 
 def test_dedup_config():

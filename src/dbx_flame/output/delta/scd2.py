@@ -13,6 +13,7 @@ from delta.tables import DeltaTable
 from pyspark.sql import functions as F
 
 from dbx_flame.context.config import IncrementStrategy, SnapshotScope, Verb
+from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.mechanics import (
     CURRENT,
@@ -41,7 +42,7 @@ if TYPE_CHECKING:
     from dbx_flame.context.context import Context
 
 _SOURCE = "Scd2Writer"
-_EVENT = "silver_new_records"
+_EVENT = Kpi.ROWS_HISTORIZED
 
 
 class Scd2Writer:

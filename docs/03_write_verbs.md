@@ -16,7 +16,17 @@ The Output layer writes with one of five verbs. Verbs are **layer-agnostic**: an
 | `__CURRENT_FLAG` | Output | `'Y'` current version / `'N'` historical |
 | `__DELETED_FLAG` | Output | `'Y'` soft-deleted entity |
 
-Every table the framework writes also keeps `delta.dataSkippingStatsColumns` (set by `DeltaTableConfig`): Delta's default first 32 leaf columns, plus `__EXPORT_DATE` and `__ANCHOR_DT` wherever they sit, so filters on them can skip files. The property replaces Delta's default rather than adding to it, so it is recomputed after any write that evolves the schema.
+Every table the framework writes also keeps `delta.dataSkippingStatsColumns` (set by `DeltaTableConfig`): Delta's default first 32 leaf columns, plus `__EXPORT_DATE` and `__ANCHOR_DT` wherever they sit, so filters on them can skip files. The property replaces Delta's default rather than adding to it, so it is recomputed after any write that evolves the schema. It also keeps the task's `output.tags` as Unity Catalog tags.
+
+Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audit log; names in `observability/kpi.py`). The names follow the verb, not the layer: a verb can write any layer, and the audit row's catalog, schema and table already say which.
+
+| Verb | KPI event |
+|---|---|
+| APPEND | `rows_appended` |
+| FULL | `rows_overwritten` |
+| UPSERT | `rows_upserted` |
+| SCD2, COMPLETE_DELTA | `rows_historized` |
+| COMPLETE_DELTA deletes feed | `rows_retired` |
 
 ---
 
@@ -27,7 +37,6 @@ Every table the framework writes also keeps `delta.dataSkippingStatsColumns` (se
 - **Requires**: target only.
 - **Semantics**: write incoming records to the target with Delta `append` (with `mergeSchema` when schema evolution is enabled). No keys, no history columns beyond what the Pipeline added.
 - **Increments**: file origins via Auto Loader checkpoint; delta origin via streaming checkpoint.
-- KPI: `bronze_new_records` / `silver_new_records` depending on target layer.
 
 ## 2. FULL
 

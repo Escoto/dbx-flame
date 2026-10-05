@@ -21,24 +21,6 @@ new code path.
 
 The project is **alpha** — see [Status](#status) for what's implemented today.
 
-## Key Capabilities
-
-- **Config-driven onboarding** — declare an origin, a write verb and a target; the framework
-  validates the combination and runs it. No per-dataset Python.
-- **Five typed layers** — Start → Pipeline → Typing → Policies → Output, each reachable only
-  through a typed `Context` and a DataFrame, so every layer is independently testable.
-- **Five write verbs** — `APPEND`, `FULL`, `UPSERT`, `SCD2`, `COMPLETE_DELTA` — layer-agnostic,
-  so the same verb serves Inbound→Bronze or Bronze→Silver.
-- **Gold is SQL (planned)** — each Gold table will be a materialized view over Silver, in its
-  own `.sql` file, so Silver's MERGEs never block it. See [Gold](docs/00_overview.md#gold).
-- **A data quality gate, not a bolt-on** — every batch is checked against a
-  [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset before it's written;
-  `error` refuses the batch, `warn` logs and lets it through.
-- **Fail fast, fail loud** — invalid config and failed checks stop the run with one aggregated
-  error report. Nothing logs an error and reports success.
-- **Ships as a wheel** — src-layout package deployed via Databricks Declarative Automation
-  Bundles and run through `python_wheel_task` entry points. No notebook logic, no `sys.path` hacks.
-
 ## Quick Look
 
 Two tasks, two YAML blocks — CSV into Bronze, then Bronze into Silver with SCD Type 1
@@ -67,6 +49,22 @@ output.event_time.column: __EXPORT_DATE
 No code changes for either step — both are entries in a workflow YAML deployed through the
 bundle. See [03_write_verbs.md](docs/03_write_verbs.md) for the full verb matrix.
 
+## Key Capabilities
+
+- **Config-driven onboarding** — declare an origin, a write verb and a target; the framework
+  validates the combination and runs it. No per-dataset Python.
+- **Data handling verbs** — `APPEND`, `FULL`, `UPSERT`, `SCD2`, `COMPLETE_DELTA` — layer-agnostic,
+  so the same verb serves Inbound→Bronze or Bronze→Silver.
+- **Gold is SQL (planned)** — each Gold table will be a materialized view over Silver, in its
+  own `.sql` file, so Silver's MERGEs never block it. See [Gold](docs/00_overview.md#gold).
+- **A data quality gate, not a bolt-on** — every batch is checked against a
+  [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset (you define this) before it's written;
+  `error` refuses the batch, `warn` logs and lets it through.
+- **Fail fast, fail loud** — Invalid Configs or Failed Data QA stops the run with one aggregated
+  error report. Nothing logs an error and reports success.
+- **Ships as a wheel** — src-layout package deployed via Databricks Declarative Automation
+  Bundles and run through `python_wheel_task` entry points. No notebook logic, no `sys.path` hacks.
+
 ## Documentation
 
 1. [00_overview.md](docs/00_overview.md) — goals, principles, glossary, layer diagram
@@ -76,11 +74,13 @@ bundle. See [03_write_verbs.md](docs/03_write_verbs.md) for the full verb matrix
 5. [04_policies.md](docs/04_policies.md) — the data quality gate, driven by a DQX ruleset
 6. [05_testing.md](docs/05_testing.md) — unit and platform testing
 7. [06_roadmap.md](docs/06_roadmap.md) — phased implementation plan and current status
+8. [07_workspace_setup.md](docs/07_workspace_setup.md) — workspace setup recipe: catalog naming, schemas, volumes, grants
 
 ## Development
 
-Targets Linux; on Windows, work inside WSL, since Spark doesn't run natively there. Needs a JDK
-(11 or 17, for PySpark), Python **3.11** (matches Databricks Runtime 15.4 LTS) and
+Targets Linux; on Windows, work inside WSL, since Spark doesn't run natively there (Required for running unit tests).
+
+Needs a JDK (11 or 17, for PySpark), Python **3.11** (matches Databricks Runtime 15.4 LTS) and
 [Poetry](https://python-poetry.org/) 2.x.
 
 ```bash
@@ -89,14 +89,17 @@ make install                # runtime + dev dependencies
 make test                   # unit tests with coverage
 ```
 
-`make` with no target lists the rest. Platform tests are real Databricks jobs under
-[platform_tests/](platform_tests/); see [05_testing.md](docs/05_testing.md).
+Review the [Makefile](Makefile) to lists the rest.
+
+Platform tests are real Databricks jobs under
+[platform_tests/](platform_tests/) - with real life scenarios; see [05_testing.md](docs/05_testing.md).
 
 ## Deploying to Databricks
 
 The bundle in [databricks.yml](databricks.yml) is configured to work with a Python wheel: it
 builds the wheel, then deploys the bundle. Authenticate with a CLI profile or with
-`DATABRICKS_HOST` / `DATABRICKS_TOKEN`:
+`DATABRICKS_HOST` / `DATABRICKS_TOKEN`. A new workspace first needs its catalogs, schemas and
+volumes; see [07_workspace_setup.md](docs/07_workspace_setup.md).
 
 ```bash
 databricks bundle deploy

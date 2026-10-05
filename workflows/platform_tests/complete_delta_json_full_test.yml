@@ -34,6 +34,8 @@ silver_table: &silver_table ADDRESS_JSON_SILVER_1
 shared_params: &shared_params
   catalog: *catalog
   env: "${bundle.target}"
+  output.tags.project: dbx-flame
+  output.tags.environment: "${bundle.target}"
   metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
   schema_evolution: fail_on_new_columns
 
