@@ -217,6 +217,9 @@ class OutputConfig(BaseModel):
     dedup: DedupConfig = DedupConfig()
     deletes: Optional[DeletesConfig] = None
 
+    # Unity Catalog tags kept on the target, set as output.tags.<name>: <value>.
+    tags: dict[str, str] = {}
+
     @field_validator("table")
     @classmethod
     def _table_must_be_uppercase(cls, value: str) -> str:

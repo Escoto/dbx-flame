@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
     from dbx_flame.context.context import RunIdentity
+    from dbx_flame.observability.kpi import Kpi
 
 _COLUMN_COMMENTS: dict[str, str] = {
     "__uuid": "Unique identifier for each log entry",
@@ -30,7 +31,7 @@ _COLUMN_COMMENTS: dict[str, str] = {
     "catalog": "Target catalog name parsed from the pipeline target table",
     "schema": "Target schema name parsed from the pipeline target table",
     "table": "Target table name parsed from the pipeline target table",
-    "name": "Event name (e.g. bronze_new_records, pipeline_start, pipeline_failure)",
+    "name": "Event name (e.g. rows_appended, pipeline_start, pipeline_failure)",
     "source": "Originating module or convention (e.g. KPI, run, CSVSource)",
     "total": "Numeric metric such as row count; 0 when not applicable",
     "description": "Human-readable message describing the event",
@@ -177,9 +178,15 @@ class AuditLogger:
     ) -> None:
         self._log("ERROR", name, source, description, total, metadata)
 
-    def kpi(self, name: str, total: int, description: str = "") -> None:
+    def kpi(self, name: Kpi, total: int, description: str = "") -> None:
+        # The plain value: Spark can't unpickle an enum member into the audit row.
         self._log(
-            "INFO", name=name, source="KPI", description=description, total=total, metadata=None
+            "INFO",
+            name=name.value,
+            source="KPI",
+            description=description,
+            total=total,
+            metadata=None,
         )
 
     def flush(self) -> None:

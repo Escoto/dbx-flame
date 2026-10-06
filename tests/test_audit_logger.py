@@ -12,6 +12,7 @@ from pyspark.sql.types import (
 
 from dbx_flame.context.context import RunIdentity
 from dbx_flame.observability.audit_logger import AuditLogger
+from dbx_flame.observability.kpi import Kpi
 
 TARGET_TABLE = "`cro_dev_01`.`silver_cro`.`SUBJECTS`"
 RUN = RunIdentity(
@@ -108,13 +109,13 @@ def test_table_auto_creation(spark, audit_db):
 
 def test_kpi_convention(spark, audit_db):
     logger = _make_logger(spark, audit_db)
-    logger.kpi("bronze_new_records", 42)
+    logger.kpi(Kpi.ROWS_APPENDED, 42)
     logger.flush()
 
     row = spark.table(f"{audit_db}.logs").collect()[0]
     assert row["source"] == "KPI"
     assert row["total"] == 42
-    assert row["name"] == "bronze_new_records"
+    assert row["name"] == "rows_appended"
     assert row["type"] == "INFO"
 
 
@@ -250,7 +251,7 @@ def test_every_entry_is_echoed_to_the_console(spark, audit_db, capsys):
     """The driver log keeps the trail even when the flush to the audit table never happens."""
     logger = _make_logger(spark, audit_db)
     logger.info("step_a", "src", "first line\nsecond line")
-    logger.kpi("rows_appended", total=3, description="AppendWriter wrote")
+    logger.kpi(Kpi.ROWS_APPENDED, total=3, description="AppendWriter wrote")
 
     printed = capsys.readouterr().out
     assert "INFO src.step_a: first line\nsecond line" in printed

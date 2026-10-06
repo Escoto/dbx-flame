@@ -159,9 +159,11 @@ introduces neither. The runner is the only place that would change.
 
 ## 8. Table tagging
 
-Unity Catalog tagging (`SET TAGS` upsert, applied when new tag values appear, warning when
-the table is missing) lives in `observability/tagging.py`. It is governance metadata, not a
-dataset rule, so it sits outside the Policies layer.
+`output.tags.<name>: <value>` keeps Unity Catalog tags on the target. `DeltaTableConfig`
+applies them after every write through `observability/tagging.py`: it sets only the tags
+whose value changed, leaves tags it doesn't name alone, and logs a `table_not_tagged`
+warning when the target doesn't exist. It is governance metadata, not a dataset rule, so it
+sits outside the Policies layer.
 
 ## 9. Platform policies
 

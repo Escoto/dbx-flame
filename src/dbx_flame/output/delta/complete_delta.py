@@ -14,6 +14,7 @@ from delta.tables import DeltaTable
 from pyspark.sql import functions as F
 
 from dbx_flame.context.config import IncrementStrategy, Origin, SnapshotScope, Verb
+from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.delta.scd2 import merge_history
 from dbx_flame.output.mechanics import (
@@ -169,7 +170,7 @@ def _apply_deletes(df: DataFrame, ctx: Context) -> None:
     ).execute()
 
     ctx.logger.kpi(
-        name="data_retirement",
+        name=Kpi.ROWS_RETIRED,
         total=df.count(),
         description=f"{_SOURCE} soft-deleted records in {ctx.target_table}",
     )

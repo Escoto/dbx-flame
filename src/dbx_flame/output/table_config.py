@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from pyspark.sql.types import ArrayType, MapType, StructType
 
+from dbx_flame.observability.tagging import apply_tags
 from dbx_flame.output.mechanics import EXPORT_DATE
 from dbx_flame.pipelines.enrichment import ANCHOR_DT
 
@@ -50,8 +51,9 @@ def stats_columns(schema: StructType) -> str:
 class DeltaTableConfig:
     """Everything the framework configures on a Delta table, in one place.
 
-    Today that is which columns carry data-skipping statistics. Other table-level
-    settings (Z-ordering, vacuum retention, ...) belong here too.
+    Today that is which columns carry data-skipping statistics, and the task's Unity
+    Catalog tags. Other table-level settings (Z-ordering, vacuum retention, ...) belong
+    here too.
     """
 
     def __init__(self, ctx: Context) -> None:
@@ -66,13 +68,15 @@ class DeltaTableConfig:
         return {STATS_COLUMNS: stats_columns(df.schema)}
 
     def apply(self) -> None:
-        """Bring an existing table's configuration in line with its current schema.
+        """Bring an existing table's configuration in line with its schema and tags.
 
         An explicit statistics list doesn't pick up a column schema evolution adds, the
         way Delta's default would. The ALTER is a metadata-only commit, and only runs
         when the list actually changes.
         """
         ctx = self._ctx
+        apply_tags(ctx)
+
         table = ctx.target_table
         if not ctx.spark.catalog.tableExists(table):
             return

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar
 from delta.tables import DeltaTable
 
 from dbx_flame.context.config import Verb
+from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.mechanics import (
     as_timestamp,
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
     from dbx_flame.context.context import Context
 
 _SOURCE = "UpsertWriter"
-_EVENT = "rows_upserted"
+_EVENT = Kpi.ROWS_UPSERTED
 
 
 class UpsertWriter:

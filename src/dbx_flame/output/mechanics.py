@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from pyspark.sql import Column, DataFrame, Row
 
     from dbx_flame.context.context import Context
+    from dbx_flame.observability.kpi import Kpi
 
 BRONZE_TIMESTAMP = "__BRONZE_LAST_MODIFIED_DT"
 SILVER_TIMESTAMP = "__SILVER_LAST_MODIFIED_DT"
@@ -273,7 +274,7 @@ def open_history(df: DataFrame, start: Column) -> DataFrame:
     )
 
 
-def log_rows_written(ctx: Context, event: str, source: str) -> None:
+def log_rows_written(ctx: Context, event: Kpi, source: str) -> None:
     """Report the row count from Delta's own commit metrics.
 
     Counting the batch would mean a second pass over the source; the table's last

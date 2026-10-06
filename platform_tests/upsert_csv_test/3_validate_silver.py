@@ -7,6 +7,8 @@ import sys
 sys.path.append(sys.argv[1])
 
 from _shared import (  # noqa: E402
+    CATALOG,
+    SCHEMA,
     SILVER_COLUMNS,
     SILVER_TABLE,
     expect_columns,
@@ -15,6 +17,7 @@ from _shared import (  # noqa: E402
     qualified,
 )
 from pyspark.sql import SparkSession  # noqa: E402
+from pyspark.sql import functions as F  # noqa: E402
 
 spark = SparkSession.builder.getOrCreate()
 
@@ -36,5 +39,15 @@ assert (
 ), f"expected the newer export to win, got {survivor['SOURCE_SYSTEM']}"
 
 assert df.filter(df["__SILVER_LAST_MODIFIED_DT"].isNull()).count() == 0, "write time missing"
+
+# The framework keeps output.tags on its target.
+tags = {
+    row.tag_name: row.tag_value
+    for row in spark.table(f"`{CATALOG}`.information_schema.table_tags")
+    .where((F.lower("schema_name") == SCHEMA) & (F.lower("table_name") == SILVER_TABLE.lower()))
+    .collect()
+}
+expected_tags = {"project": "dbx-flame", "environment": sys.argv[3]}
+assert expected_tags.items() <= tags.items(), f"expected tags {expected_tags}, found {tags}"
 
 print("silver validated")

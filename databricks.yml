@@ -14,16 +14,26 @@ variables:
 artifacts:
   dbx_flame_wheel:
     type: whl
-    # --clean empties dist/ first. The task libraries glob dist/*.whl, so a wheel left
-    # over from an earlier version would be picked up instead of the one just built.
+    # --clean empties dist/ first.
     build: poetry build --clean
     path: .
 
 targets:
   dev:
+    presets:
+      tags:
+        project: dbx-flame
+        environment: ${bundle.target}
     mode: development
-    default: true
+    variables:
+      platform_tests_catalog: dbx_flame
     workspace:
-      # The profile name only, never a workspace URL: the host comes from
-      # this profile's config at in the local ~/.databrickscfg.
+      profile: dbx_flame_profile
+
+  dev_01:
+    default: true
+    mode: development
+    variables:
+      platform_tests_catalog: testing
+    workspace:
       profile: dbx_flame_profile
