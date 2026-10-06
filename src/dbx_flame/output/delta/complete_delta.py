@@ -31,6 +31,7 @@ from dbx_flame.output.mechanics import (
     key_condition,
 )
 from dbx_flame.pipelines.delta_source import DeltaSource
+from dbx_flame.policies.runner import PolicyRunner
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -51,6 +52,7 @@ class CompleteDeltaWriter:
         supports_snapshot_scope=True,
         # snapshot replay needs a Delta updates table; file origins cannot feed it
         origins=frozenset({Origin.DELTA}),
+        per_snapshot=True,
         # Watermark only: replay has to see every snapshot, so a strategy that
         # keeps just the newest one would defeat the purpose of the verb.
         increment_strategies=(IncrementStrategy.WATERMARK,),
@@ -85,6 +87,12 @@ class CompleteDeltaWriter:
             total=len(snapshots),
             description=f"Replaying {len(snapshots)} snapshot(s) into {ctx.target_table}",
         )
+
+        # Each snapshot is judged as the rows its merge writes, and all of them before
+        # the first merge, so one that fails leaves the target untouched.
+        runner = PolicyRunner()
+        for snapshot in snapshots:
+            runner.run(_at(df, snapshot), ctx, batch=f"snapshot {snapshot}")
 
         for snapshot in snapshots:
             merge_history(_at(df, snapshot), ctx, snapshot)

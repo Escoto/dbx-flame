@@ -184,6 +184,21 @@ def test_every_check_is_evaluated_before_the_gate_refuses(spark, ctx, runner, tm
     assert excinfo.value.results[0].severity is Severity.FAIL
 
 
+def test_a_named_part_of_a_batch_is_named_in_every_audit_row(spark, ctx, runner, tmp_path):
+    """A verb gating a backlog per snapshot logs the same names once per snapshot."""
+    ctx.checks = load_checks(_ruleset(tmp_path, ID_NOT_NULL + NAME_NOT_NULL_WARN))
+
+    with pytest.raises(PolicyViolation):
+        runner.run(_batch(spark), ctx, batch="snapshot 2026-01-01 12:00:00")
+
+    assert ctx.logger.error.call_args.kwargs["description"].endswith(
+        "(snapshot 2026-01-01 12:00:00)"
+    )
+    assert ctx.logger.warning.call_args.kwargs["description"].endswith(
+        "(snapshot 2026-01-01 12:00:00)"
+    )
+
+
 def test_the_gate_does_not_alter_the_batch(spark, ctx, runner, tmp_path):
     """DQX's result columns are private to the runner and never reach the writer."""
     ctx.checks = load_checks(_ruleset(tmp_path, NAME_NOT_NULL_WARN))

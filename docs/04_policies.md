@@ -54,7 +54,7 @@ check, and DQX already models it as `criticality`.
 1. **Start** reads the ruleset and calls DQX's `validate_checks`. An unknown check
    function, a misspelled argument or a missing required parameter fails the task here,
    before anything is read.
-2. **Between Typing and Output** the runner applies the checks, which appends DQX's
+2. **Between dedup and Output** the runner applies the checks, which appends DQX's
    `_errors` / `_warnings` result columns to the batch.
 3. The runner aggregates those columns in one pass into per-check counts and logs each
    result to the audit table. The checked DataFrame never leaves the runner: `run()` hands
@@ -199,8 +199,18 @@ skip an update or let dedup keep an arbitrary row.
 Each check runs where its data is first available. For a batch, the order is:
 
 ```
-unstamped_file → prepare() → event_time_invalid → user policies (DQX) → writer
+unstamped_file → prepare() → event_time_invalid → dedup → user policies (DQX) → writer
 ```
+
+Dedup runs after `event_time_invalid`, because it orders rows by those dates: a row
+whose date doesn't parse would sort last and be dropped quietly. It runs before the
+user policies, so they judge exactly the rows the writer receives, and a key the batch
+legitimately sends twice doesn't fail `is_unique`.
+
+COMPLETE_DELTA replays a backlog one snapshot at a time, so it dedups each snapshot on
+its own and runs the user policies once per snapshot it replays, all before its first
+merge. Each audit row names its snapshot. Under `snapshot_scope: full`, superseded
+exports are never replayed, so they are never judged.
 
 A violation writes an `ERROR` audit row, flushes the audit log, then raises
 `PlatformPolicyViolation`. Nothing from the batch is written.

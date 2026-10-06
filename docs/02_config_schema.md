@@ -126,7 +126,8 @@ Notes:
 - Dedup is **on by default** for keyed verbs (upsert/scd2/complete_delta): the latest row per
   `output.keys`, ordered by `output.event_time`, ties broken by the newer `__EXPORT_DATE`.
   An upsert without `output.event_time` must set `output.dedup.order_by` or
-  `output.dedup.enabled: false`.
+  `output.dedup.enabled: false`. It runs before the user policies, so they judge the
+  deduplicated batch; COMPLETE_DELTA dedups each snapshot on its own.
 - `record_envelope` unwraps a vendor JSON envelope — `metadata.export_date` plus a `data`
   array — into one row per item. The keys named in `source.envelope_fields` are lifted into
   columns of their own and the whole item stays under `DATA` as JSON text, so only those

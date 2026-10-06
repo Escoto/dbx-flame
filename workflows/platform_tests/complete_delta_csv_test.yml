@@ -22,6 +22,9 @@ bronze_check: &bronze_check ${workspace.file_path}/platform_tests/complete_delta
 silver_check: &silver_check ${workspace.file_path}/platform_tests/complete_delta_csv_test/3_validate_silver.py
 watermark_check: &watermark_check ${workspace.file_path}/platform_tests/complete_delta_csv_test/4_validate_silver_watermark.py
 
+# Every export in the backlog re-sends ID; the gate judges each snapshot on its own.
+checks_file: &checks_file ${workspace.file_path}/workflows/platform_tests/qa_checks/reusable_unique_id_check.yml
+
 catalog: &catalog ${var.platform_tests_catalog}
 bronze_table: &bronze_table COMPLETE_DELTA_CSV_BRONZE_1
 silver_table: &silver_table COMPLETE_DELTA_CSV_SILVER_1
@@ -50,6 +53,7 @@ silver_params: &silver_params
   source.origin: delta
   source.schema_name: *schema
   source.table: *bronze_table
+  policies.checks_file: *checks_file
   # How to read the snapshot timestamp out of __FILEPATH: 14 digits, yyyyMMddHHmmss.
   output.verb: complete_delta
   output.schema_name: *schema

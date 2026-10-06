@@ -19,6 +19,9 @@ bronze_check: &bronze_check ${workspace.file_path}/platform_tests/upsert_csv_tes
 silver_check: &silver_check ${workspace.file_path}/platform_tests/upsert_csv_test/3_validate_silver.py
 reload_check: &reload_check ${workspace.file_path}/platform_tests/upsert_csv_test/4_validate_silver_reload.py
 
+# ID repeats within a batch; dedup collapses it before the gate, so this passes.
+checks_file: &checks_file ${workspace.file_path}/workflows/platform_tests/qa_checks/reusable_unique_id_check.yml
+
 catalog: &catalog ${var.platform_tests_catalog}
 bronze_table: &bronze_table UPSERT_CSV_BRONZE_1
 silver_table: &silver_table UPSERT_CSV_SILVER_1
@@ -46,6 +49,7 @@ silver_params: &silver_params
   source.origin: delta
   source.schema_name: *schema
   source.table: *bronze_table
+  policies.checks_file: *checks_file
   output.verb: upsert
   output.schema_name: *schema
   output.table: *silver_table

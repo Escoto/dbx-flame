@@ -71,7 +71,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 **Algorithm** (per batch):
 
 1. Optional rename patterns; event-time/dedup-column normalization to timestamp. These normalized columns are held internally and never persisted, so the target schema stays the one the source defines.
-2. Dedup (on by default): keep the latest row per key (`output.keys`), ordered by event time desc, ties broken by `__EXPORT_DATE` desc (the newer export wins). `dedup.columns` / `dedup.order_by` override either.
+2. Dedup (on by default, before the policy gate): keep the latest row per key (`output.keys`), ordered by event time desc, ties broken by `__EXPORT_DATE` desc (the newer export wins). `dedup.columns` / `dedup.order_by` override either.
 3. Add `__SILVER_LAST_MODIFIED_DT`; drop `__BRONZE_LAST_MODIFIED_DT`.
 4. Target absent → create with metadata init (`__START_DATE` = event_time or now, `__END_DATE` = NULL, flags Y/N).
 5. Target present:

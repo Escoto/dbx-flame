@@ -23,6 +23,10 @@ class Requirements:
     supports_snapshot_scope: bool = False
     origins: frozenset[Origin] = frozenset(Origin)
 
+    # The batch is a backlog of snapshots the verb replays one at a time, so dedup
+    # and the policy gate judge each snapshot rather than the backlog as a whole.
+    per_snapshot: bool = False
+
     # Which increment strategies this verb can run under; the first is the default
     # and the only one used unless source.increment_strategy picks another.
     increment_strategies: tuple[IncrementStrategy, ...] = (IncrementStrategy.CHECKPOINT,)

@@ -6,6 +6,7 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pyspark.sql import functions as F
 
 from dbx_flame.context.config import (
     EventTimeConfig,
@@ -73,7 +74,7 @@ def test_a_file_origin_gets_provenance(spark, tmp_path):
     raw = spark.read.option("header", "true").csv(str(fixture))
 
     ctx = _ctx(spark)
-    writer = MagicMock()
+    writer = MagicMock(requires=Requirements())
 
     with patch.dict(SOURCES, {Origin.CSV: lambda: MagicMock(read=lambda _c: raw)}):
         with patch.dict(WRITER_BY_VERB, {Verb.APPEND: lambda: writer}):
@@ -129,7 +130,7 @@ def test_rename_patterns_run_after_sanitization(spark):
 def test_a_batch_source_writes_directly(spark):
     ctx = _ctx(spark, origin=Origin.DELTA)
     df = spark.createDataFrame([("1",)], "ID string")
-    writer = MagicMock()
+    writer = MagicMock(requires=Requirements())
 
     with patch.dict(SOURCES, {Origin.DELTA: lambda: MagicMock(read=lambda _ctx: df)}):
         with patch.dict(WRITER_BY_VERB, {Verb.APPEND: lambda: writer}):
@@ -180,3 +181,56 @@ def test_only_a_keyed_verb_checks_its_event_time(spark):
     with pytest.raises(PlatformPolicyViolation, match="event_time_invalid"):
         _gate_and_write(df, ctx, keyed)
     keyed.write.assert_not_called()
+
+
+def _keyed_ctx(spark):
+    ctx = _ctx(spark, origin=Origin.DELTA)
+    ctx.config.output.keys = ["ID"]
+    ctx.config.output.event_time = EventTimeConfig(column="UPDATED")
+    return ctx
+
+
+def _resent_key(spark):
+    return spark.createDataFrame(
+        [("1", "old", "2024-01-01"), ("1", "new", "2024-06-01"), ("2", "only", "2024-01-01")],
+        "ID string, NAME string, UPDATED string",
+    )
+
+
+def _names(df) -> set[tuple[str, str]]:
+    return {(row["ID"], row["NAME"]) for row in df.collect()}
+
+
+def test_the_gate_and_the_writer_see_the_same_deduplicated_rows(spark):
+    """Judging rows dedup is about to collapse would fail is_unique on data that lands fine."""
+    writer = MagicMock(requires=Requirements(keys=True))
+
+    with patch("dbx_flame.entrypoints.pipeline.PolicyRunner") as runner:
+        _gate_and_write(_resent_key(spark), _keyed_ctx(spark), writer)
+
+    gated = runner.return_value.run.call_args.args[0]
+    written = writer.write.call_args.args[0]
+    assert _names(gated) == {("1", "new"), ("2", "only")}
+    assert _names(written) == _names(gated)
+
+
+def test_with_dedup_off_the_batch_reaches_the_gate_unchanged(spark):
+    ctx = _keyed_ctx(spark)
+    ctx.config.output.dedup.enabled = False
+    writer = MagicMock(requires=Requirements(keys=True))
+
+    with patch("dbx_flame.entrypoints.pipeline.PolicyRunner") as runner:
+        _gate_and_write(_resent_key(spark), ctx, writer)
+
+    assert runner.return_value.run.call_args.args[0].count() == 3
+
+
+def test_a_per_snapshot_verb_is_left_to_gate_its_own_snapshots(spark):
+    writer = MagicMock(requires=Requirements(keys=True, per_snapshot=True))
+    backlog = _resent_key(spark).withColumn("__EXPORT_DATE", F.current_timestamp())
+
+    with patch("dbx_flame.entrypoints.pipeline.PolicyRunner") as runner:
+        _gate_and_write(backlog, _keyed_ctx(spark), writer)
+
+    runner.return_value.run.assert_not_called()
+    writer.write.assert_called_once()

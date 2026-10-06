@@ -149,10 +149,10 @@ class PolicyResult:
     policy: str; failed_count: int; severity: Severity; details: str
 
 class PolicyRunner:
-    def run(self, df: DataFrame, ctx: Context) -> None: ...
+    def run(self, df: DataFrame, ctx: Context, batch: str | None = None) -> None: ...
 ```
 
-- Rule evaluation is delegated to [Databricks DQX](https://databrickslabs.github.io/dqx/). The layer is a **gate**: it applies the configured ruleset, aggregates DQX's `_error`/`_warning` result columns into per-check counts, logs each to the audit table, drops the result columns, and raises `PolicyViolation` after evaluating **everything** if any row carried an `error`. The DataFrame handed on is the one that arrived.
+- Rule evaluation is delegated to [Databricks DQX](https://databrickslabs.github.io/dqx/). The layer is a **gate**: it applies the configured ruleset, aggregates DQX's `_error`/`_warning` result columns into per-check counts, logs each to the audit table, drops the result columns, and raises `PolicyViolation` after evaluating **everything** if any row carried an `error`. The DataFrame handed on is the one that arrived. It judges the batch after dedup; COMPLETE_DELTA gates each replayed snapshot instead, naming it in the audit rows (`batch`).
 - The ruleset is a detached YAML named by `policies.checks_file`, read and validated at Start. Nothing in this layer is native: schema drift belongs to the task-level `schema_evolution` knob, not here. Full semantics in [04_policies.md](04_policies.md).
 
 ### 3.5 Output (`dbx_flame.output`)
