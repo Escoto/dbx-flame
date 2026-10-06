@@ -51,6 +51,7 @@ Every one follows the same shape:
 | `complete_delta_csv_test` | COMPLETE_DELTA: a multi-snapshot backlog replayed in order, plus a watermark re-run that must be a no-op |
 | `complete_delta_csv_typecasting_test` | A week of daily full exports with a real cast config: type survival through promotion, a 7-column composite key, genuinely empty fields |
 | `complete_delta_csv_typecasting_full_test` | The same fixtures under `snapshot_scope: full`: only the newest export is replayed, with the *identical* current state |
+| `append_delta_cross_catalog_test` | APPEND from a Bronze in one catalog into a Silver in another (`source.catalog`): Silver's checkpoint lives in the consumer's catalog, and a second round receives only the new export |
 | `complete_delta_json_anchor_test` | Full + delta feeds after a pause: a backlog with two full exports resyncs Silver to the newest, and the delta feed, anchored on the `__ANCHOR_DT` both Bronze feeds stamp, applies only what came after it |
 
 Validation scripts assert on **data** — row counts, history chains, flags, validity windows,
@@ -76,6 +77,7 @@ SQL and grants, is [07_workspace_setup.md](07_workspace_setup.md).
 | `<catalog>_<target>.functional_testing` (schema) | test tables |
 | `<catalog>_<target>.functional_testing.source_data` (volume) | inbound files and checkpoints |
 | `monitoring_<target>.audit` (schema) | the audit table, created on first run |
+| `<consumer_catalog>_<target>.functional_testing` and its `source_data` volume | `append_delta_cross_catalog_test`'s Silver and checkpoints (`platform_tests_consumer_catalog`; for now the same catalog) |
 
 Every test script takes `[base, catalog, env, ...]` and builds the catalog the same way.
 

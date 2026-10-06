@@ -278,8 +278,25 @@ def validate_requirements(config: TaskConfig) -> list[str]:
         )
 
     errors.extend(_envelope_errors(config))
+    errors.extend(_metadata_errors(config))
 
     return errors
+
+
+def _metadata_errors(config: TaskConfig) -> list[str]:
+    """Checkpoints and schema locations live in the consumer's catalog: the target's.
+
+    Whoever consumes a source tracks that consumption, so a task reading another catalog
+    never keeps its progress there.
+    """
+    consumer = _env_catalog(config.catalog, config.env)
+    parts = config.metadata_path.strip("/").split("/")
+    if len(parts) > 1 and parts[0] == "Volumes" and parts[1].lower() == consumer.lower():
+        return []
+    return [
+        f"metadata_path must be a Volume in the target's catalog (/Volumes/{consumer}/...), "
+        f"got '{config.metadata_path}'"
+    ]
 
 
 def _envelope_errors(config: TaskConfig) -> list[str]:
@@ -322,6 +339,10 @@ def _backtick_fqn(catalog: str, schema: str, table: str) -> str:
     return f"`{catalog}`.`{schema}`.`{table}`"
 
 
+def _env_catalog(catalog: str, env: str) -> str:
+    return f"{catalog}_{env}"
+
+
 def build_context(
     config: TaskConfig,
     spark: SparkSession,
@@ -345,7 +366,7 @@ def build_context(
     if errors:
         raise ConfigValidationError(errors)
 
-    catalog = f"{config.catalog}_{config.env}"
+    catalog = _env_catalog(config.catalog, config.env)
 
     target_table = _backtick_fqn(catalog, config.output.schema_name, config.output.table)
 
@@ -359,9 +380,10 @@ def build_context(
     if source.origin == Origin.DELTA:
         schema_name, table = source.schema_name, source.table
         assert schema_name and table  # guaranteed by SourceConfig
-        source_table = _backtick_fqn(catalog, schema_name, table)
+        source_catalog = _env_catalog(source.catalog, config.env) if source.catalog else catalog
+        source_table = _backtick_fqn(source_catalog, schema_name, table)
         if source.deletes_table:
-            deletes_table = _backtick_fqn(catalog, schema_name, source.deletes_table)
+            deletes_table = _backtick_fqn(source_catalog, schema_name, source.deletes_table)
     else:
         path, directory = source.path, source.directory
         assert path and directory  # guaranteed by SourceConfig

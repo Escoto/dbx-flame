@@ -92,6 +92,10 @@ class SourceConfig(BaseModel):
     envelope_fields: list[str] = []
     rename_patterns: list[str] = []
     options: SourceOptions = SourceOptions()
+
+    # Delta origin only: the catalog the source (and deletes) table lives in, resolved to
+    # {catalog}_{env} like the task's own. Unset means the task's catalog.
+    catalog: Optional[str] = None
     schema_name: Optional[str] = None
     table: Optional[str] = None
     deletes_table: Optional[str] = None
@@ -149,6 +153,9 @@ class SourceConfig(BaseModel):
 
         if self.deletes_table and self.origin != Origin.DELTA:
             problems.append("source.deletes_table requires source.origin=delta")
+
+        if self.catalog and self.origin != Origin.DELTA:
+            problems.append("source.catalog requires source.origin=delta")
 
         if self.snapshot_time_pattern and self.origin not in FILE_ORIGINS:
             # A delta origin reads the __EXPORT_DATE its Bronze already parsed.

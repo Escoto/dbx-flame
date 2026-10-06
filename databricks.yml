@@ -10,6 +10,12 @@ variables:
   platform_tests_catalog:
     description: Catalog prefix for the platform tests; the framework appends _<target>.
     default: dbx_flame
+  platform_tests_consumer_catalog:
+    description: >-
+      Catalog prefix the cross-catalog tests promote into, reading from
+      platform_tests_catalog; the framework appends _<target>.
+    # TODO: @Escoto - Create New Testing catalog for this feature
+    default: dbx_flame
 
 artifacts:
   dbx_flame_wheel:
@@ -27,6 +33,7 @@ targets:
     mode: development
     variables:
       platform_tests_catalog: dbx_flame
+      platform_tests_consumer_catalog: dbx_flame
     workspace:
       profile: dbx_flame_profile
 
@@ -35,5 +42,6 @@ targets:
     mode: development
     variables:
       platform_tests_catalog: testing
+      platform_tests_consumer_catalog: testing
     workspace:
       profile: dbx_flame_profile

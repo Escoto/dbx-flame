@@ -216,7 +216,7 @@ def _config(**overrides) -> TaskConfig:
     defaults: dict[str, Any] = dict(
         catalog="cro",
         env="dev_01",
-        metadata_path="/Volumes/meta/",
+        metadata_path="/Volumes/cro_dev_01/meta/",
         source=SourceConfig(origin=Origin.CSV, path="/Volumes/in/", directory="agents"),
         typing=TypingConfig(),
         policies=PoliciesConfig(),

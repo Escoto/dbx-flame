@@ -52,7 +52,7 @@ def _ctx(spark, database, verb=Verb.APPEND, schema_evolution=None, **output_over
     config = TaskConfig(
         catalog="cro",
         env="dev_01",
-        metadata_path="/Volumes/meta/",
+        metadata_path="/Volumes/cro_dev_01/meta/",
         **({"schema_evolution": schema_evolution} if schema_evolution else {}),
         source=SourceConfig(origin=Origin.CSV, path="/Volumes/in/", directory="people"),
         output=OutputConfig(**output),

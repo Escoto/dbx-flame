@@ -38,7 +38,7 @@ def _ctx(spark, origin=Origin.CSV, **source_overrides):
     config = TaskConfig(
         catalog="cro",
         env="dev_01",
-        metadata_path="/Volumes/meta/",
+        metadata_path="/Volumes/cro_dev_01/meta/",
         source=SourceConfig(**source),
         typing=TypingConfig(),
         output=OutputConfig(verb=Verb.APPEND, schema_name="bronze", table="PEOPLE"),

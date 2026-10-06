@@ -80,7 +80,7 @@ def _ctx(
     config = TaskConfig(
         catalog="cro",
         env="dev_01",
-        metadata_path="/Volumes/meta/",
+        metadata_path="/Volumes/cro_dev_01/meta/",
         schema_evolution=schema_evolution,
         source=source or SourceConfig(origin=Origin.DELTA, schema_name="bronze", table="SOURCE"),
         output=OutputConfig(**output),

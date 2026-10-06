@@ -30,7 +30,7 @@ def _config(names: list[str], fields: list[str] | None = None) -> TaskConfig:
     return TaskConfig(
         catalog="cro",
         env="dev_01",
-        metadata_path="/Volumes/meta/",
+        metadata_path="/Volumes/cro_dev_01/meta/",
         source=SourceConfig(
             origin=Origin.JSON,
             path="/Volumes/in/",

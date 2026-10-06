@@ -40,6 +40,10 @@ resources:
           run_job_task:
             job_id: ${resources.jobs.full_txt_weekly_test.id}
 
+        - task_key: append_delta_cross_catalog_test
+          run_job_task:
+            job_id: ${resources.jobs.append_delta_cross_catalog_test.id}
+
         - task_key: scd2_csv_test
           run_job_task:
             job_id: ${resources.jobs.scd2_csv_test.id}

@@ -14,7 +14,7 @@ from dbx_flame.context.loader import (
 MINIMAL_PARAMS = {
     "catalog": "cro",
     "env": "dev_01",
-    "metadata_path": "/Volumes/meta/",
+    "metadata_path": "/Volumes/cro_dev_01/meta/",
     "source.origin": "csv",
     "source.path": "/Volumes/inbound/",
     "source.directory": "agents",
@@ -29,7 +29,7 @@ def test_happy_path_minimal():
     assert isinstance(config, TaskConfig)
     assert config.catalog == "cro"
     assert config.env == "dev_01"
-    assert config.metadata_path == "/Volumes/meta/"
+    assert config.metadata_path == "/Volumes/cro_dev_01/meta/"
     assert config.source.origin == Origin.CSV
     assert config.source.path == "/Volumes/inbound/"
     assert config.source.directory == "agents"
@@ -295,7 +295,7 @@ def test_increment_anchor_is_a_switch():
 DELTA_PARAMS = {
     "catalog": "cro",
     "env": "dev_01",
-    "metadata_path": "/Volumes/meta/",
+    "metadata_path": "/Volumes/cro_dev_01/meta/",
     "source.origin": "delta",
     "source.schema_name": "bronze_cro",
     "source.table": "AGENTS_UPDATES",

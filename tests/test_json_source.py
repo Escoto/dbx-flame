@@ -55,7 +55,7 @@ def _config(**source_overrides) -> TaskConfig:
     return TaskConfig(
         catalog="cro",
         env="dev_01",
-        metadata_path="/Volumes/meta/",
+        metadata_path="/Volumes/cro_dev_01/meta/",
         source=SourceConfig(**source),
         output=OutputConfig(verb=Verb.APPEND, schema_name="bronze_cro", table="ADDRESS"),
     )
