@@ -47,12 +47,13 @@ class PolicyRunner:
     this class is what guarantees they can never reach the target table.
     """
 
-    def run(self, df: DataFrame, ctx: Context) -> None:
+    def run(self, df: DataFrame, ctx: Context, batch: str | None = None) -> None:
+        """`batch` names the part of the batch judged, when a verb gates it in parts."""
         if not ctx.checks:
             return
 
         results = self._evaluate(df, ctx)
-        self._log(results, ctx)
+        self._log(results, ctx, batch)
 
         # Logged first, and every check evaluated, so one run reports everything the
         # batch broke rather than stopping at the first rule to fail.
@@ -94,12 +95,14 @@ class PolicyRunner:
             for row in counts
         ]
 
-    def _log(self, results: list[PolicyResult], ctx: Context) -> None:
+    def _log(self, results: list[PolicyResult], ctx: Context, batch: str | None) -> None:
+        # Several parts of one batch log the same names; the part tells their rows apart.
+        suffix = f" ({batch})" if batch else ""
         if not results:
             ctx.logger.info(
                 name="policies_passed",
                 source=_SOURCE,
-                description=f"Every configured check passed on {ctx.target_table}",
+                description=f"Every configured check passed on {ctx.target_table}{suffix}",
                 total=len(ctx.checks),
             )
             return
@@ -109,6 +112,6 @@ class PolicyRunner:
             record(
                 name=result.policy,
                 source=_SOURCE,
-                description=result.details,
+                description=f"{result.details}{suffix}",
                 total=result.failed_count,
             )

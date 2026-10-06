@@ -23,7 +23,6 @@ from dbx_flame.output.mechanics import (
     EXPIRED,
     LIVE,
     as_timestamp,
-    deduplicate,
     key_condition,
     log_rows_written,
     merge_schema,
@@ -76,9 +75,10 @@ def event_time(ctx: Context, alias: str | None = None) -> Column:
 def merge_history(df: DataFrame, ctx: Context, snapshot: Optional[datetime] = None) -> None:
     """Close each key's superseded version and insert the incoming one.
 
-    `snapshot` is the export being merged; snapshot_scope=full expires at it.
+    `snapshot` is the export being merged; snapshot_scope=full expires at it. The
+    pipeline has already deduplicated df.
     """
-    prepared = promote(deduplicate(df, ctx))
+    prepared = promote(df)
     require_creatable(prepared, ctx)
 
     if not ctx.spark.catalog.tableExists(ctx.target_table):

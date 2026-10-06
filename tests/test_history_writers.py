@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import replace
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -33,6 +34,7 @@ from dbx_flame.output.delta.complete_delta import CompleteDeltaWriter
 from dbx_flame.output.delta.complete_delta import _at as snapshot_rows
 from dbx_flame.output.delta.scd2 import Scd2Writer
 from dbx_flame.output.delta.upsert import UpsertWriter
+from dbx_flame.policies.base import PolicyViolation
 from dbx_flame.policies.platform import PlatformPolicyViolation
 
 RUN = RunIdentity(
@@ -183,7 +185,7 @@ def test_scd2_keeps_only_the_latest_row_per_key_within_a_batch(spark, database):
         ),
     )
 
-    Scd2Writer().write(
+    _gate_and_write(
         _subjects(
             spark,
             [
@@ -192,6 +194,7 @@ def test_scd2_keeps_only_the_latest_row_per_key_within_a_batch(spark, database):
             ],
         ),
         ctx,
+        Scd2Writer(),
     )
 
     assert _history(spark, database) == {("A", "v2", _at(2), None, "Y", "N")}
@@ -209,7 +212,7 @@ def test_scd2_leaves_a_key_the_newest_export_omits_untouched(spark, database):
         ],
     )
 
-    Scd2Writer().write(backlog, ctx)
+    _gate_and_write(backlog, ctx, Scd2Writer())
 
     assert _history(spark, database) == {
         ("A", "v2", _at(2), None, "Y", "N"),
@@ -227,7 +230,7 @@ def test_scd2_prefers_the_newer_export_when_event_times_tie(spark, database):
         ],
     )
 
-    Scd2Writer().write(backlog, ctx)
+    _gate_and_write(backlog, ctx, Scd2Writer())
 
     assert _history(spark, database) == {("A", "v2", _at(1), None, "Y", "N")}
 
@@ -513,3 +516,97 @@ def test_complete_delta_refuses_a_deletes_feed_with_a_null_delete_time(spark, da
         CompleteDeltaWriter().write(updates, ctx)
 
     assert not spark.catalog.tableExists(f"`{database}`.`TARGET`")
+
+
+# --- dedup and the gate per snapshot (gh #2) ---------------------------------
+
+UNIQUE_ID = [
+    {
+        "name": "id_is_unique",
+        "criticality": "error",
+        "check": {"function": "is_unique", "arguments": {"columns": ["ID"]}},
+    }
+]
+
+
+def _passed(ctx) -> list[str]:
+    infos = ctx.logger.info.call_args_list
+    return [c.kwargs["description"] for c in infos if c.kwargs["name"] == "policies_passed"]
+
+
+def test_complete_delta_dedups_each_snapshot_on_its_own(spark, database):
+    """Deduplicating the backlog as a whole would collapse A to v2 and lose v1."""
+    ctx = _complete_delta_ctx(spark, database)
+    updates = _snapshot_subjects(
+        spark,
+        [
+            ("A", "v0", "2026-01-01 00:00:00", 1),
+            ("A", "v1", "2026-01-01 06:00:00", 1),
+            ("A", "v2", "2026-01-02 00:00:00", 2),
+        ],
+    )
+
+    _gate_and_write(updates, ctx, CompleteDeltaWriter())
+
+    assert _history(spark, database) == {
+        ("A", "v1", _at(1, 6), _at(2), "N", "N"),
+        ("A", "v2", _at(2), None, "Y", "N"),
+    }
+
+
+def test_complete_delta_gates_each_snapshot_so_a_resent_key_passes(spark, database):
+    """Every snapshot re-sends A; judged as a backlog, is_unique(ID) would always fail."""
+    ctx = replace(_complete_delta_ctx(spark, database), checks=UNIQUE_ID)
+    updates = _snapshot_subjects(
+        spark,
+        [("A", "v1", "2026-01-01 00:00:00", 1), ("A", "v2", "2026-01-02 00:00:00", 2)],
+    )
+
+    _gate_and_write(updates, ctx, CompleteDeltaWriter())
+
+    assert len(_history(spark, database)) == 2
+    passed = _passed(ctx)
+    assert len(passed) == 2
+    assert passed[0].endswith(f"(snapshot {_at(1, 12)})")
+    assert passed[1].endswith(f"(snapshot {_at(2, 12)})")
+
+
+def test_complete_delta_writes_nothing_when_a_later_snapshot_fails_its_gate(spark, database):
+    """Every snapshot is judged before the first merge, so none is half-replayed."""
+    ctx = replace(
+        _complete_delta_ctx(spark, database, output={"dedup": DedupConfig(enabled=False)}),
+        checks=UNIQUE_ID,
+    )
+    updates = _snapshot_subjects(
+        spark,
+        [
+            ("A", "v1", "2026-01-01 00:00:00", 1),
+            ("A", "v2", "2026-01-02 00:00:00", 2),
+            ("A", "v3", "2026-01-02 06:00:00", 2),
+        ],
+    )
+
+    with pytest.raises(PolicyViolation):
+        _gate_and_write(updates, ctx, CompleteDeltaWriter())
+
+    assert not spark.catalog.tableExists(f"`{database}`.`TARGET`")
+    assert ctx.logger.error.call_args.kwargs["description"].endswith(f"(snapshot {_at(2, 12)})")
+
+
+def test_complete_delta_full_scope_does_not_judge_superseded_exports(spark, database):
+    """Only the newest export is replayed, so the older ones' rows never reach the gate."""
+    output = {"snapshot_scope": SnapshotScope.FULL, "dedup": DedupConfig(enabled=False)}
+    ctx = replace(_complete_delta_ctx(spark, database, output=output), checks=UNIQUE_ID)
+    updates = _snapshot_subjects(
+        spark,
+        [
+            ("A", "v1", "2026-01-01 00:00:00", 1),
+            ("A", "v1", "2026-01-01 00:00:00", 1),
+            ("A", "v2", "2026-01-02 00:00:00", 2),
+        ],
+    )
+
+    _gate_and_write(updates, ctx, CompleteDeltaWriter())
+
+    assert _history(spark, database) == {("A", "v2", _at(2), None, "Y", "N")}
+    assert len(_passed(ctx)) == 1

@@ -207,19 +207,24 @@ def require_creatable(df: DataFrame, ctx: Context) -> None:
     )
 
 
-def deduplicate(df: DataFrame, ctx: Context) -> DataFrame:
+def deduplicate(df: DataFrame, ctx: Context, per_snapshot: bool = False) -> DataFrame:
     """Keep the latest row per key within the batch, unless disabled.
 
     On by default because the keyed verbs assume one row per key per batch; a second
     one opens a duplicate current row. Ordering uses an expression rather than a
     derived column, so nothing extra is written to the target.
+
+    per_snapshot keeps the latest row per key in each export instead, for a verb that
+    replays every snapshot: collapsing across them would lose the versions in between.
     """
     output = ctx.config.output
     dedup = output.dedup
     if not dedup.enabled:
         return df
 
-    columns = dedup.columns or output.keys
+    columns = list(dedup.columns or output.keys)
+    if per_snapshot:
+        columns.append(EXPORT_DATE)
     if dedup.order_by:
         order = as_timestamp(dedup.order_by, dedup.order_by_format)
     else:

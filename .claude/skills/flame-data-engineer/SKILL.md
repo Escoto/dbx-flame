@@ -66,7 +66,7 @@ default over changing behaviour for every task. Greenfield: "parity" is never a 
 
 1. **Place it in a layer**: Start → Pipeline → Typing → Policies → Output, plus
    `observability/` and `entrypoints/`. A batch flows:
-   `read → provenance → reject_unstamped → prepare() → platform checks → DQX → writer`.
+   `read → provenance → reject_unstamped → prepare() → platform checks → dedup → DQX → writer`.
 2. **Config first.** Add the field to the pydantic model with a safe default, its
    validation (and rejections) at Start, and a line in `docs/02_config_schema.md`.
 3. **Find the home.** Reuse an existing helper or registry; extend it rather than copy

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from dbx_flame.context.config import FILE_ORIGINS
-from dbx_flame.output.mechanics import compared_times, require_valid_times
+from dbx_flame.output.mechanics import compared_times, deduplicate, require_valid_times
 from dbx_flame.output.registry import WRITER_BY_VERB
 from dbx_flame.output.table_config import DeltaTableConfig
 from dbx_flame.pipelines.enrichment import (
@@ -48,7 +48,7 @@ def prepare(df: DataFrame, ctx: Context) -> DataFrame:
 
 
 def _gate_and_write(df: DataFrame, ctx: Context, writer: Writer) -> None:
-    """Prepare a batch, put it through the policy gate, then write it.
+    """Prepare a batch, deduplicate it, put it through the policy gate, then write it.
 
     The gate stays out of prepare(): prepare() is a transformation and this is an
     action that can refuse. Keeping them apart is also what lets the gate judge exactly
@@ -63,8 +63,14 @@ def _gate_and_write(df: DataFrame, ctx: Context, writer: Writer) -> None:
     # Platform policies before the user's. Only the keyed verbs compare dates; on the
     # others an event time is unused, so nothing hangs on it parsing.
     if writer.requires.keys:
+        # Before dedup, which orders by these dates: a row whose date won't parse
+        # would sort last and be dropped quietly instead of failing the batch.
         require_valid_times(prepared, ctx, compared_times(ctx))
-    PolicyRunner().run(prepared, ctx)
+        prepared = deduplicate(prepared, ctx, per_snapshot=writer.requires.per_snapshot)
+
+    # A per-snapshot verb gates each snapshot it replays, before its first merge.
+    if not writer.requires.per_snapshot:
+        PolicyRunner().run(prepared, ctx)
     writer.write(prepared, ctx)
 
     # After the write, so a column schema evolution just added is in the table.

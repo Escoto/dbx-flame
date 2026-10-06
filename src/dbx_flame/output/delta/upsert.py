@@ -11,7 +11,6 @@ from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.mechanics import (
     as_timestamp,
-    deduplicate,
     log_rows_written,
     merge_schema,
     require_no_new_columns,
@@ -35,7 +34,7 @@ class UpsertWriter:
     requires: ClassVar[Requirements] = Requirements(keys=True)
 
     def write(self, df: DataFrame, ctx: Context) -> None:
-        prepared = promote(deduplicate(df, ctx))
+        prepared = promote(df)
         require_creatable(prepared, ctx)
 
         if not ctx.spark.catalog.tableExists(ctx.target_table):
