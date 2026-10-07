@@ -17,7 +17,9 @@ bronze_check: &bronze_check ${workspace.file_path}/platform_tests/append_delta_c
 silver_check: &silver_check ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test/3_validate_silver.py
 
 catalog: &catalog ${var.platform_tests_catalog}
-consumer_catalog: &consumer_catalog ${var.platform_tests_consumer_catalog}
+
+# TODO: @Escoto - Create new source catalog for cross-catalog promotion)
+consumer_catalog: &consumer_catalog ${var.platform_tests_catalog}
 bronze_table: &bronze_table APPEND_DELTA_CROSS_CATALOG_BRONZE_1
 silver_table: &silver_table APPEND_DELTA_CROSS_CATALOG_SILVER_1
 schema: &schema functional_testing
@@ -42,7 +44,7 @@ bronze_params: &bronze_params
 silver_params: &silver_params
   <<: *shared_params
   catalog: *consumer_catalog
-  metadata_path: /Volumes/${var.platform_tests_consumer_catalog}_${bundle.target}/functional_testing/source_data/metadata/
+  metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
   source.origin: delta
   source.catalog: *catalog
   source.schema_name: *schema

@@ -77,7 +77,7 @@ SQL and grants, is [07_workspace_setup.md](07_workspace_setup.md).
 | `<catalog>_<target>.functional_testing` (schema) | test tables |
 | `<catalog>_<target>.functional_testing.source_data` (volume) | inbound files and checkpoints |
 | `monitoring_<target>.audit` (schema) | the audit table, created on first run |
-| `<consumer_catalog>_<target>.functional_testing` and its `source_data` volume | `append_delta_cross_catalog_test`'s Silver and checkpoints (`platform_tests_consumer_catalog`; for now the same catalog) |
+| `<consumer_catalog>_<target>.functional_testing` and its `source_data` volume | `append_delta_cross_catalog_test`'s Silver and checkpoints |
 
 Every test script takes `[base, catalog, env, ...]` and builds the catalog the same way.
 
