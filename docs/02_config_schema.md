@@ -37,7 +37,7 @@ workflow that forgets them is visible in the audit table rather than silently un
 # ── identity ─────────────────────────────────────────────
 catalog: clinical                 # str, required
 env: dev                          # str, required   (always ${bundle.target})
-metadata_path: /Volumes/.../metadata/   # str, required
+metadata_path: /Volumes/clinical_dev/.../metadata/   # str, required; a Volume in {catalog}_{env}
 
 # ── source (Layer 2: Pipeline) ───────────────────────────
 source.origin: csv                # enum: csv | json | sas | delta   (required)
@@ -63,6 +63,8 @@ source.options.multiline: true          # csv/json (default true)
 source.options.schema_hints: "ID STRING"  # json only; optional Auto Loader hints
 
 # delta origin:
+source.catalog: raw                    # optional; the source's catalog, as {catalog}_{env}
+                                       #   unset → the task's catalog
 source.schema_name: bronze_main          # schema of the source table
 source.table: SUBJECTS_UPDATES          # source table
 source.deletes_table: SUBJECTS_DELETES  # optional deletes feed
@@ -100,6 +102,12 @@ output.tags.project: dbx-flame          # Unity Catalog tags on the target, one 
 
 Notes:
 
+- `source.catalog` lets a delta-origin task read its source and deletes tables from another
+  catalog in the same metastore, so each layer can have a catalog of its own. The consumer
+  tracks its own consumption: the target, its checkpoints and the audit row all stay in the
+  task's `catalog`, which is why `metadata_path` must be a Volume there. The job's identity
+  needs `SELECT` on the source catalog. Pointing an existing task at another source catalog
+  means a new source table, so its checkpoint must be reset.
 - Each verb declares its increment strategy (`checkpoint` for append/full/upsert/scd2,
   `watermark` for complete_delta) and the Start layer resolves it onto the `Context`.
   `source.increment_strategy` only picks where a verb allows more than one: scd2 may opt

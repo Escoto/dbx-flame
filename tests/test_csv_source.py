@@ -44,7 +44,7 @@ def _context(mock_spark, schema_evolution=None, **source_overrides):
     config = TaskConfig(
         catalog="cro",
         env="dev_01",
-        metadata_path="/Volumes/meta/",
+        metadata_path="/Volumes/cro_dev_01/meta/",
         **({"schema_evolution": schema_evolution} if schema_evolution else {}),
         source=SourceConfig(**source),
         output=OutputConfig(verb=Verb.APPEND, schema_name="bronze_cro", table="AGENTS"),

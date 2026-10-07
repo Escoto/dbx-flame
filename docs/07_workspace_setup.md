@@ -167,6 +167,8 @@ Then:
 - **One schema for each `output.schema_name`** you use. A table is created on first write; its
   schema is not.
 - **A volume for `source.path` and `metadata_path`.** They can share one, as the tests do.
+  `metadata_path` must sit in the task's own catalog (`/Volumes/{catalog}_{env}/...`), so
+  a task reading another catalog (`source.catalog`) keeps its progress with itself.
   Under `metadata_path` the framework keeps one folder per table:
   `{metadata_path}/{catalog}_{env}/{schema}/{TABLE}/_checkpoint/`.
 - **One `monitoring_{env}` per target**, shared by every catalog in that environment.

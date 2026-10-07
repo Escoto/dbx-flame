@@ -41,7 +41,7 @@ def _make_config(**overrides) -> TaskConfig:
     defaults: dict[str, Any] = dict(
         catalog="cro",
         env="dev_01",
-        metadata_path="/Volumes/meta/",
+        metadata_path="/Volumes/cro_dev_01/meta/",
         source=SourceConfig(origin=Origin.CSV, path="/Volumes/in/", directory="agents"),
         typing=TypingConfig(),
         policies=PoliciesConfig(),
@@ -167,15 +167,21 @@ def test_inbound_glob_none_for_delta(mock_spark):
 
 
 def test_checkpoint_location(mock_spark):
-    config = _make_config(metadata_path="/Volumes/meta/")
+    config = _make_config(metadata_path="/Volumes/cro_dev_01/meta/")
     ctx = build_context(config, mock_spark, RUN)
-    assert ctx.checkpoint_location == "/Volumes/meta/cro_dev_01/bronze_cro/AGENTS/_checkpoint/"
+    assert (
+        ctx.checkpoint_location
+        == "/Volumes/cro_dev_01/meta/cro_dev_01/bronze_cro/AGENTS/_checkpoint/"
+    )
 
 
 def test_schema_hints_location(mock_spark):
-    config = _make_config(metadata_path="/Volumes/meta/")
+    config = _make_config(metadata_path="/Volumes/cro_dev_01/meta/")
     ctx = build_context(config, mock_spark, RUN)
-    assert ctx.schema_hints_location == "/Volumes/meta/cro_dev_01/bronze_cro/AGENTS/_schema_hints/"
+    assert (
+        ctx.schema_hints_location
+        == "/Volumes/cro_dev_01/meta/cro_dev_01/bronze_cro/AGENTS/_schema_hints/"
+    )
 
 
 def test_run_identity(mock_spark):
@@ -510,12 +516,18 @@ def test_increment_strategy_declared_by_verb(mock_spark):
 
 def test_metadata_path_without_a_trailing_slash(mock_spark):
     """The separator belongs to the join, not to how the operator typed the parameter."""
-    config = _make_config(metadata_path="/Volumes/meta")
+    config = _make_config(metadata_path="/Volumes/cro_dev_01/meta")
 
     ctx = build_context(config, mock_spark, RUN)
 
-    assert ctx.checkpoint_location == "/Volumes/meta/cro_dev_01/bronze_cro/AGENTS/_checkpoint/"
-    assert ctx.schema_hints_location == "/Volumes/meta/cro_dev_01/bronze_cro/AGENTS/_schema_hints/"
+    assert (
+        ctx.checkpoint_location
+        == "/Volumes/cro_dev_01/meta/cro_dev_01/bronze_cro/AGENTS/_checkpoint/"
+    )
+    assert (
+        ctx.schema_hints_location
+        == "/Volumes/cro_dev_01/meta/cro_dev_01/bronze_cro/AGENTS/_schema_hints/"
+    )
 
 
 def _scd2(**source_overrides) -> TaskConfig:
@@ -606,3 +618,79 @@ def test_the_verb_default_applies_when_nothing_is_configured(mock_spark):
     ctx = build_context(_scd2(), mock_spark, RUN)
 
     assert ctx.increment_strategy is IncrementStrategy.CHECKPOINT
+
+
+# --- cross-catalog promotion (gh #30) ----------------------------------------
+
+
+def _cross_catalog_config(**source_overrides) -> TaskConfig:
+    source = dict(
+        origin=Origin.DELTA,
+        catalog="raw",
+        schema_name="bronze_cro",
+        table="SUBJECTS_UPDATES",
+        deletes_table="SUBJECTS_DELETES",
+    )
+    source.update(source_overrides)
+    return _make_config(
+        source=SourceConfig(**source),
+        output=OutputConfig(
+            verb=Verb.COMPLETE_DELTA,
+            schema_name="silver_cro",
+            table="SUBJECTS",
+            keys=["ID"],
+            event_time=EventTimeConfig(column="MODIFIED"),
+            deletes=DeletesConfig(keys=["ID"], event_time=EventTimeConfig(column="DELETED_AT")),
+        ),
+    )
+
+
+def test_a_source_catalog_resolves_per_env_for_the_source_and_its_deletes(mock_spark):
+    ctx = build_context(_cross_catalog_config(), mock_spark, RUN)
+
+    assert ctx.source_table == "`raw_dev_01`.`bronze_cro`.`SUBJECTS_UPDATES`"
+    assert ctx.deletes_table == "`raw_dev_01`.`bronze_cro`.`SUBJECTS_DELETES`"
+
+
+def test_the_consumer_keeps_the_target_and_its_checkpoints(mock_spark):
+    """If I consume, I track my consumption: nothing about progress lives in the source's catalog."""
+    ctx = build_context(_cross_catalog_config(), mock_spark, RUN)
+
+    assert ctx.target_table == "`cro_dev_01`.`silver_cro`.`SUBJECTS`"
+    assert ctx.checkpoint_location.startswith("/Volumes/cro_dev_01/")
+    assert ctx.schema_hints_location.startswith("/Volumes/cro_dev_01/")
+
+
+def test_without_a_source_catalog_the_source_stays_in_the_task_catalog(mock_spark):
+    ctx = build_context(_cross_catalog_config(catalog=None), mock_spark, RUN)
+
+    assert ctx.source_table == "`cro_dev_01`.`bronze_cro`.`SUBJECTS_UPDATES`"
+
+
+def test_a_source_catalog_is_rejected_on_a_file_origin():
+    with pytest.raises(ValueError, match="source.catalog requires source.origin=delta"):
+        SourceConfig(origin=Origin.CSV, path="/Volumes/in/", directory="agents", catalog="raw")
+
+
+@pytest.mark.parametrize(
+    "metadata_path",
+    [
+        "/Volumes/raw_dev_01/meta/",  # the source's catalog, not the consumer's
+        "/Volumes/cro/meta/",  # the base name without its env
+        "/tmp/meta/",  # not a Volume at all
+    ],
+)
+def test_metadata_outside_the_consumer_catalog_is_rejected(metadata_path):
+    config = _make_config(metadata_path=metadata_path)
+
+    errors = validate_requirements(config)
+
+    assert errors == [
+        "metadata_path must be a Volume in the target's catalog (/Volumes/cro_dev_01/...), "
+        f"got '{metadata_path}'"
+    ]
+
+
+def test_the_consumer_catalog_in_metadata_path_ignores_case():
+    """Unity Catalog names are case-insensitive."""
+    assert validate_requirements(_make_config(metadata_path="/Volumes/CRO_DEV_01/meta/")) == []

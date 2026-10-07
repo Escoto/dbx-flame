@@ -1,0 +1,166 @@
+# End-to-end platform test: CSV → Bronze (APPEND) → Silver (APPEND) in another catalog.
+#
+# Bronze lives in the producer's catalog, Silver in the consumer's, and Silver reads
+# Bronze through source.catalog. The consumer tracks its own consumption: Silver's
+# checkpoint lives in a volume of the consumer's catalog, never the producer's.
+#
+# Round 2 lands one more export. Silver must gain only its rows, which proves the
+# checkpoint in the consumer's catalog resumed the read rather than starting over.
+#
+# This is also the layout a federated source will use: a full read appended into the
+# consumer's Bronze (gh #28).
+
+base: &base ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test/1_generate_data.py
+bronze_check: &bronze_check ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test/2_validate_bronze.py
+silver_check: &silver_check ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test/3_validate_silver.py
+
+catalog: &catalog ${var.platform_tests_catalog}
+consumer_catalog: &consumer_catalog ${var.platform_tests_consumer_catalog}
+bronze_table: &bronze_table APPEND_DELTA_CROSS_CATALOG_BRONZE_1
+silver_table: &silver_table APPEND_DELTA_CROSS_CATALOG_SILVER_1
+schema: &schema functional_testing
+
+shared_params: &shared_params
+  env: "${bundle.target}"
+  output.tags.project: dbx-flame
+  output.tags.environment: "${bundle.target}"
+  schema_evolution: fail_on_new_columns
+
+bronze_params: &bronze_params
+  <<: *shared_params
+  catalog: *catalog
+  metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
+  source.origin: csv
+  source.path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/inbound/
+  source.directory: APPEND_DELTA_CROSS_CATALOG_SOURCE_1
+  output.verb: append
+  output.schema_name: *schema
+  output.table: *bronze_table
+
+silver_params: &silver_params
+  <<: *shared_params
+  catalog: *consumer_catalog
+  metadata_path: /Volumes/${var.platform_tests_consumer_catalog}_${bundle.target}/functional_testing/source_data/metadata/
+  source.origin: delta
+  source.catalog: *catalog
+  source.schema_name: *schema
+  source.table: *bronze_table
+  output.verb: append
+  output.schema_name: *schema
+  output.table: *silver_table
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    append_delta_cross_catalog_test:
+      name: append_delta_cross_catalog_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster append_delta_cross_catalog_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m7gd.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base, *catalog, "${bundle.target}", *consumer_catalog]
+
+        - task_key: &generate_1 generate_data_1
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, *catalog, "${bundle.target}", *consumer_catalog, "1"]
+
+        - task_key: &bronze_1 inbound_to_bronze_1
+          depends_on: [{task_key: *generate_1}]
+          job_cluster_key: *cluster
+          max_retries: 1
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_check_1 bronze_validation_1
+          depends_on: [{task_key: *bronze_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base, *catalog, "${bundle.target}", *consumer_catalog]
+
+        - task_key: &silver_1 bronze_to_silver_1
+          depends_on: [{task_key: *bronze_check_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: &silver_check_1 silver_validation_1
+          depends_on: [{task_key: *silver_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base, *catalog, "${bundle.target}", *consumer_catalog, "6"]
+
+        # Second round: one more export, of which silver may receive only the new rows.
+        - task_key: &generate_2 generate_data_2
+          depends_on: [{task_key: *silver_check_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, *catalog, "${bundle.target}", *consumer_catalog, "2"]
+
+        - task_key: &bronze_2 inbound_to_bronze_2
+          depends_on: [{task_key: *generate_2}]
+          job_cluster_key: *cluster
+          max_retries: 1
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &silver_2 bronze_to_silver_2
+          depends_on: [{task_key: *bronze_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: silver_validation_2
+          depends_on: [{task_key: *silver_2}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base, *catalog, "${bundle.target}", *consumer_catalog, "8"]
