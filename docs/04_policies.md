@@ -190,6 +190,12 @@ The platform policies, named as the audit row a violation writes:
 | `empty_source_schema` | a new target would be created from a batch with no columns |
 | `unexpected_columns` | a batch carries a new column and `schema_evolution` doesn't add it |
 | `event_time_invalid` | a date a keyed verb compares is missing, blank or doesn't parse |
+| `malformed_table` | a source table carries one of `__SOURCE` and `__EXPORT_DATE` but not the other |
+| `unstamped_table` | a checkpoint or watermark read meets a table with neither: only `full_read` may stamp one |
+| `stamped_full_read` | a `full_read` meets a table we stamped, whose exports it would load again |
+
+The last three run on the table origin's read, before anything is read from it, and apply
+to its deletes table too ([02_config_schema.md](02_config_schema.md) has the full rule).
 
 `event_time_invalid` covers `output.event_time`, `output.dedup.order_by` and, on
 COMPLETE_DELTA, `output.deletes.event_time`. Only UPSERT, SCD2 and COMPLETE_DELTA check it,
@@ -199,7 +205,8 @@ skip an update or let dedup keep an arbitrary row.
 Each check runs where its data is first available. For a batch, the order is:
 
 ```
-unstamped_file → prepare() → event_time_invalid → dedup → user policies (DQX) → writer
+read (malformed_table · unstamped_table · stamped_full_read) → unstamped_file → prepare()
+  → event_time_invalid → dedup → user policies (DQX) → writer
 ```
 
 Dedup runs after `event_time_invalid`, because it orders rows by those dates: a row

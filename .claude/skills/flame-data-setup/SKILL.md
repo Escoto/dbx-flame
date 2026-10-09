@@ -25,6 +25,13 @@ Provider files ──► Inbound volume ──► BRONZE ──► SILVER ──
   parameters. No Python per dataset.
 - **Every file name must carry its export timestamp** (e.g. `CLAIMS_20261005050000.csv`).
   It becomes `__EXPORT_DATE`, the export's identity. A file without one fails the run.
+- **The source can also be a table we didn't create** (a federated database, another
+  team's catalog). It has no files and no stamp, so Bronze reads it whole on every run
+  (`source.origin: table`, `source.increment_strategy: full_read`, `output.verb: append`):
+  each read becomes one snapshot, stamped with the read time. Ask how big the table is
+  and how often it may be read, since every run reads all of it from the source system.
+  For history in Silver, ask whether it has a real modification date: without one,
+  history re-versions every row on every read (see the README's Usage Cheat-Sheet).
 
 ## 2. Ask these questions
 
