@@ -49,8 +49,8 @@ RUN = RunIdentity(
 EVENT_FORMAT = "yyyy-MM-dd HH:mm:ss"
 
 SUBJECTS = "ID string, PAYLOAD string, UPDATEDTIME string"
-SNAPSHOT_SUBJECTS = f"{SUBJECTS}, __FILEPATH string, __EXPORT_DATE timestamp"
-DELETIONS = "ID string, DELETEDTIME string, __FILEPATH string, __EXPORT_DATE timestamp"
+SNAPSHOT_SUBJECTS = f"{SUBJECTS}, __SOURCE string, __EXPORT_DATE timestamp"
+DELETIONS = "ID string, DELETEDTIME string, __SOURCE string, __EXPORT_DATE timestamp"
 
 
 @pytest.fixture
@@ -271,7 +271,7 @@ def test_scd2_adds_a_new_column_when_evolution_is_on(spark, database):
 
 
 def _file(day: int, name: str = "subjects") -> str:
-    return f"/Volumes/in/{name}/{name}_2026010{day}120000.csv"
+    return f"FILE:/Volumes/in/{name}/{name}_2026010{day}120000.csv"
 
 
 def _snapshot_subjects(spark, rows):

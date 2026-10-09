@@ -141,13 +141,14 @@ def test_a_csv_fixture_flows_to_a_typed_dataframe(spark, mock_spark, tmp_path):
         "FULL_NAME",
         "AGE",
         "__BRONZE_LAST_MODIFIED_DT",
-        "__FILEPATH",
+        "__SOURCE",
         "__EXPORT_DATE",
     ]
     assert row["AGENT_ID"] == "1"
     assert row["FULL_NAME"] == "alice"
     assert row["__EXPORT_DATE"] == datetime(2024, 1, 15, 10, 30)
-    assert row["__FILEPATH"].endswith("AGENTS_20240115103000.csv")
+    assert row["__SOURCE"].startswith("FILE:")
+    assert row["__SOURCE"].endswith("AGENTS_20240115103000.csv")
 
 
 def test_a_cast_config_applies_to_the_same_flow(spark, mock_spark, tmp_path):

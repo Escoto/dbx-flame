@@ -191,16 +191,16 @@ def test_the_envelope_reads_a_hinted_string_column_too(spark, tmp_path):
 
 
 def test_columns_added_before_the_envelope_are_carried_through(spark, tmp_path):
-    """Provenance is attached upstream and COMPLETE_DELTA cuts snapshots from __FILEPATH."""
+    """Provenance is attached upstream, and every exploded record must still trace to its file."""
     from pyspark.sql import functions as F
 
     raw = spark.read.option("multiLine", "true").json(_written(spark, tmp_path, ENVELOPE))
-    with_provenance = raw.withColumn("__FILEPATH", F.lit("/Volumes/in/address/x.json"))
+    with_provenance = raw.withColumn("__SOURCE", F.lit("FILE:/Volumes/in/address/x.json"))
 
     unwrapped = RecordEnvelope().apply(with_provenance, _envelope_ctx(["uri"]))
 
-    assert "__FILEPATH" in unwrapped.columns
-    assert unwrapped.select("__FILEPATH").distinct().count() == 1
+    assert "__SOURCE" in unwrapped.columns
+    assert unwrapped.select("__SOURCE").distinct().count() == 1
 
 
 def test_sanitization_uppercases_the_lifted_fields(spark, tmp_path):

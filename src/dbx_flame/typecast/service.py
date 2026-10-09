@@ -33,7 +33,7 @@ class MissingColumnException(Exception):
 
 
 def _is_metadata(column: str) -> bool:
-    """Framework columns (__EXPORT_DATE, __FILEPATH, ...) are exempt from user casts."""
+    """Framework columns (__EXPORT_DATE, __SOURCE, ...) are exempt from user casts."""
     return column.startswith(_METADATA_PREFIX)
 
 
