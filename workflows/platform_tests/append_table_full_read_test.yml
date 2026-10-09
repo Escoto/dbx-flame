@@ -1,0 +1,166 @@
+# End-to-end platform test: a table we didn't create → Bronze (full_read + APPEND) →
+# Silver (FULL), over two rounds (gh #35).
+#
+# The source is a plain Delta table with none of our metadata, standing in for a
+# foreign (federated) one: no stream to resume, no export stamp to follow. Each full
+# read lands it in Bronze as one snapshot, stamped with the read time.
+#
+# Between rounds the source changes in place: one row updated, one added, one deleted.
+# Bronze must keep both reads whole, and Silver must equal the source as of the second
+# read, the deleted row included, which only a full read can reveal.
+
+base: &base ${workspace.file_path}/platform_tests/append_table_full_read_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/append_table_full_read_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/append_table_full_read_test/1_generate_data.py
+bronze_check: &bronze_check ${workspace.file_path}/platform_tests/append_table_full_read_test/2_validate_bronze.py
+silver_check: &silver_check ${workspace.file_path}/platform_tests/append_table_full_read_test/3_validate_silver.py
+
+catalog: &catalog ${var.platform_tests_catalog}
+source_table: &source_table APPEND_TABLE_FULL_READ_SOURCE_1
+bronze_table: &bronze_table APPEND_TABLE_FULL_READ_BRONZE_1
+silver_table: &silver_table APPEND_TABLE_FULL_READ_SILVER_1
+schema: &schema functional_testing
+
+shared_params: &shared_params
+  catalog: *catalog
+  env: "${bundle.target}"
+  metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
+  output.tags.project: dbx-flame
+  output.tags.environment: "${bundle.target}"
+  schema_evolution: fail_on_new_columns
+  source.origin: table
+  output.schema_name: *schema
+
+bronze_params: &bronze_params
+  <<: *shared_params
+  source.schema_name: *schema
+  source.table: *source_table
+  source.increment_strategy: full_read
+  output.verb: append
+  output.table: *bronze_table
+
+silver_params: &silver_params
+  <<: *shared_params
+  source.schema_name: *schema
+  source.table: *bronze_table
+  output.verb: full
+  output.table: *silver_table
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    append_table_full_read_test:
+      name: append_table_full_read_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster append_table_full_read_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m7gd.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base, *catalog, "${bundle.target}"]
+
+        - task_key: &generate_1 generate_data_1
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, *catalog, "${bundle.target}", "1"]
+
+        - task_key: &bronze_1 table_to_bronze_1
+          depends_on: [{task_key: *generate_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_check_1 bronze_validation_1
+          depends_on: [{task_key: *bronze_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base, *catalog, "${bundle.target}", "1"]
+
+        - task_key: &silver_1 bronze_to_silver_1
+          depends_on: [{task_key: *bronze_check_1}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: &silver_check_1 silver_validation_1
+          depends_on: [{task_key: *silver_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base, *catalog, "${bundle.target}", "1"]
+
+        # Second round: the source changed in place; a second full read lands beside the first.
+        - task_key: &generate_2 generate_data_2
+          depends_on: [{task_key: *silver_check_1}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, *catalog, "${bundle.target}", "2"]
+
+        - task_key: &bronze_2 table_to_bronze_2
+          depends_on: [{task_key: *generate_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*bronze_params, *identity]
+
+        - task_key: &bronze_check_2 bronze_validation_2
+          depends_on: [{task_key: *bronze_2}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *bronze_check
+            parameters: [*base, *catalog, "${bundle.target}", "2"]
+
+        - task_key: &silver_2 bronze_to_silver_2
+          depends_on: [{task_key: *bronze_check_2}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*silver_params, *identity]
+
+        - task_key: silver_validation_2
+          depends_on: [{task_key: *silver_2}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *silver_check
+            parameters: [*base, *catalog, "${bundle.target}", "2"]
