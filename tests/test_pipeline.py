@@ -86,7 +86,7 @@ def test_a_file_origin_gets_provenance(spark, tmp_path):
         "AGENT_ID",
         "FULL_NAME",
         "__BRONZE_LAST_MODIFIED_DT",
-        "__FILEPATH",
+        "__SOURCE",
         "__EXPORT_DATE",
     ]
     assert row["__EXPORT_DATE"] == datetime(2024, 1, 15, 10, 30)
@@ -103,7 +103,7 @@ def test_provenance_is_attached_before_the_stream_not_inside_it(spark, tmp_path)
     fixture.write_text("id" + chr(10) + "1" + chr(10), encoding="utf-8")
     raw = spark.read.option("header", "true").csv(str(fixture))
 
-    assert "__FILEPATH" not in prepare(raw, _ctx(spark)).columns
+    assert "__SOURCE" not in prepare(raw, _ctx(spark)).columns
 
 
 def test_a_table_origin_keeps_the_provenance_it_arrived_with(spark):

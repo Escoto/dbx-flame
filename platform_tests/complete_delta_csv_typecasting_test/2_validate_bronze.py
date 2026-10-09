@@ -35,7 +35,7 @@ expect_types(df)
 
 # Seven snapshots, nine records each, none deduplicated on the way in.
 expect_rows(df, BRONZE_ROWS)
-assert df.select("__FILEPATH").distinct().count() == SNAPSHOTS, "expected 7 source files"
+assert df.select("__SOURCE").distinct().count() == SNAPSHOTS, "expected 7 source files"
 assert df.select("__EXPORT_DATE").distinct().count() == SNAPSHOTS, "exports share a timestamp"
 assert df.filter(df["__EXPORT_DATE"].isNull()).count() == 0, "__EXPORT_DATE was not parsed"
 

@@ -24,7 +24,7 @@ BRONZE_COLUMNS = {
     "SOURCE_SYSTEM",
     "CREATED_DATE",
     "__BRONZE_LAST_MODIFIED_DT",
-    "__FILEPATH",
+    "__SOURCE",
     "__EXPORT_DATE",
 }
 
@@ -33,7 +33,7 @@ SILVER_COLUMNS = {
     "NAME",
     "SOURCE_SYSTEM",
     "CREATED_DATE",
-    "__FILEPATH",
+    "__SOURCE",
     "__EXPORT_DATE",
     "__SILVER_LAST_MODIFIED_DT",
 }

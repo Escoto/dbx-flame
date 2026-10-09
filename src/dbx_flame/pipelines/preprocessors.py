@@ -64,8 +64,8 @@ class RecordEnvelope:
         fields = ctx.config.source.envelope_fields
         lifted = [F.get_json_object(_PAYLOAD, f"$.{field}").alias(field) for field in fields]
 
-        # Everything the reader added stays: provenance is attached upstream of this and
-        # COMPLETE_DELTA cuts its snapshots from __FILEPATH.
+        # Everything the reader added stays: provenance is attached upstream of this, and
+        # every exploded record must still trace to the file it came from.
         carried = [column for column in df.columns if column not in (_METADATA, _ARRAY)]
         return items.select(*lifted, _PAYLOAD, _EXPORT_DATE, *carried)
 

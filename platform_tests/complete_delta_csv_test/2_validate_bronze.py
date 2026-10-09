@@ -31,7 +31,9 @@ assert df.filter(df["ID"] == "A").count() == 3, "A should be present in all thre
 # Three distinct exports, which is what the snapshot split will key on.
 assert df.filter(df["__EXPORT_DATE"].isNull()).count() == 0, "__EXPORT_DATE was not parsed"
 assert df.select("__EXPORT_DATE").distinct().count() == 3, "the exports share a timestamp"
-assert df.filter(df["__FILEPATH"].isNull()).count() == 0, "__FILEPATH is required to split"
+assert (
+    df.filter(~df["__SOURCE"].startswith("FILE:/Volumes/")).count() == 0
+), "__SOURCE must name each row's file"
 
 # The event time arrives as an unparsed string: bronze keeps the source's format.
 assert dict(df.dtypes)["CHANGE_TS"] == "string", "bronze should not have typed CHANGE_TS"

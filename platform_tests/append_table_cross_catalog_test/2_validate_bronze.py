@@ -6,7 +6,13 @@ import sys
 # the workflow passes this script's directory as the first parameter.
 sys.path.append(sys.argv[1])
 
-from _shared import COLUMNS, bronze, expect_columns, expect_rows  # noqa: E402
+from _shared import (  # noqa: E402
+    COLUMNS,
+    bronze,
+    expect_columns,
+    expect_file_provenance,
+    expect_rows,
+)
 from pyspark.sql import SparkSession  # noqa: E402
 
 spark = SparkSession.builder.getOrCreate()
@@ -18,5 +24,7 @@ expect_columns(df, COLUMNS)
 
 # APPEND keeps both exports whole: 3 + 3.
 expect_rows(df, 6)
+
+expect_file_provenance(df)
 
 print("bronze validated")

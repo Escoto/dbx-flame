@@ -88,7 +88,7 @@ def expect_current(df, expected: set) -> None:
 def expect_absent(df, exports) -> None:
     """None of these exports wrote a single row to silver."""
     for export in exports:
-        written = df.filter(df["__FILEPATH"].endswith(export)).count()
+        written = df.filter(df["__SOURCE"].endswith(export)).count()
         assert written == 0, f"{export} is superseded and should not reach silver"
 
 

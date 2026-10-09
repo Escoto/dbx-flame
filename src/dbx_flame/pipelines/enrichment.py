@@ -32,6 +32,11 @@ _UNSAFE_CHARS = re.compile(r"[ ,;{}()\n\t=./]")
 
 ANCHOR_DT = "__ANCHOR_DT"
 
+# Where and how each record was read, prefixed by the kind of read. Written once at
+# ingestion and never overwritten, so every Silver and Gold row traces to its origin.
+SOURCE = "__SOURCE"
+_FILE_PREFIX = "FILE:"
+
 # Auto Loader's catch-all for values that did not fit the inferred schema.
 _RESCUED_COLUMN = "_rescued_data"
 
@@ -49,16 +54,16 @@ def _export_date(file_path: Column, pattern: SnapshotTimePattern) -> Column:
 
 
 def add_provenance(df: DataFrame, ctx: Context) -> DataFrame:
-    """Add __bronze_last_modified_dt, __filePath and __EXPORT_DATE.
+    """Add __bronze_last_modified_dt, __SOURCE and __EXPORT_DATE.
 
     Runs before sanitization, so the patterns match the source's own casing and are
-    uppercased into the metadata contract (__FILEPATH, __EXPORT_DATE, ...) there.
+    uppercased into the metadata contract (__BRONZE_LAST_MODIFIED_DT, ...) there.
     """
     pattern = ctx.config.source.snapshot_time_pattern or SnapshotTimePattern.DATETIME
     file_path = F.col("_metadata.file_path")
     return (
         df.withColumn("__bronze_last_modified_dt", F.current_timestamp())
-        .withColumn("__filePath", file_path)
+        .withColumn(SOURCE, F.concat(F.lit(_FILE_PREFIX), file_path))
         .withColumn("__EXPORT_DATE", _export_date(file_path, pattern))
     )
 
@@ -69,7 +74,7 @@ def reject_unstamped(df: DataFrame, ctx: Context) -> None:
     The file is refused rather than loaded without an __EXPORT_DATE: every watermark
     would skip it silently, and Bronze would need cleaning by hand.
     """
-    unstamped = df.filter(F.col("__EXPORT_DATE").isNull()).select("__filePath").first()
+    unstamped = df.filter(F.col("__EXPORT_DATE").isNull()).select(SOURCE).first()
     if unstamped is None:
         return
 

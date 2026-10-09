@@ -41,9 +41,19 @@ def test_provenance_columns_added(spark, tmp_path, ctx):
 
     row = add_provenance(df, ctx).collect()[0]
 
-    assert row["__filePath"].endswith("AGENTS_20240115103000.csv")
+    assert row["__SOURCE"].endswith("AGENTS_20240115103000.csv")
     assert row["__EXPORT_DATE"] == datetime(2024, 1, 15, 10, 30, 0)
     assert row["__bronze_last_modified_dt"] is not None
+
+
+def test_source_is_the_file_path_unity_catalog_reports_prefixed_by_file(spark, tmp_path, ctx):
+    """The prefix says how the record was read; the path is kept exactly, never normalized."""
+    df = _read_csv(spark, tmp_path, "AGENTS_20240115103000.csv")
+    reported = df.select("_metadata.file_path").first()[0]
+
+    row = add_provenance(df, ctx).collect()[0]
+
+    assert row["__SOURCE"] == f"FILE:{reported}"
 
 
 @pytest.mark.parametrize(
@@ -89,7 +99,9 @@ def test_export_date_ignores_a_stamp_in_the_folder_names(spark):
 def test_an_unstamped_file_is_refused_before_anything_is_written(spark, tmp_path, ctx):
     df = add_provenance(_read_csv(spark, tmp_path, "AGENTS.csv"), ctx)
 
-    with pytest.raises(PlatformPolicyViolation, match="AGENTS.csv doesn't carry"):
+    with pytest.raises(
+        PlatformPolicyViolation, match=r"unstamped_file: FILE:.*AGENTS\.csv doesn't carry"
+    ):
         reject_unstamped(df, ctx)
     assert ctx.logger.error.call_args.kwargs["name"] == "unstamped_file"
 
@@ -169,7 +181,7 @@ def test_provenance_survives_sanitization_as_the_metadata_contract(spark, tmp_pa
 
     result = sanitize_column_names(add_provenance(df, ctx), ctx)
 
-    assert "__FILEPATH" in result.columns
+    assert "__SOURCE" in result.columns
     assert "__BRONZE_LAST_MODIFIED_DT" in result.columns
     assert "__EXPORT_DATE" in result.columns
 

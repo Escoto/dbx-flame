@@ -26,12 +26,15 @@ SOURCE_DIRECTORY = "APPEND_TABLE_CROSS_CATALOG_SOURCE_1"
 SILVER_METADATA = f"{CONSUMER_METADATA}/{CONSUMER}/{SCHEMA}/{SILVER_TABLE}"
 BRONZE_METADATA = f"{METADATA}/{CATALOG}/{SCHEMA}/{BRONZE_TABLE}"
 
+# Provenance as Bronze wrote it: the read's kind, then the file exactly as UC reports it.
+SOURCE_PREFIX = f"FILE:{INBOUND}/{SOURCE_DIRECTORY}/"
+
 COLUMNS = {
     "ID",
     "NAME",
     "SOURCE_SYSTEM",
     "__BRONZE_LAST_MODIFIED_DT",
-    "__FILEPATH",
+    "__SOURCE",
     "__EXPORT_DATE",
 }
 
@@ -54,3 +57,8 @@ def expect_columns(df, expected: set) -> None:
 def expect_rows(df, count: int) -> None:
     actual = df.count()
     assert actual == count, f"expected {count} rows, found {actual}"
+
+
+def expect_file_provenance(df) -> None:
+    stray = df.filter(~df["__SOURCE"].startswith(SOURCE_PREFIX)).select("__SOURCE").first()
+    assert stray is None, f"__SOURCE should start with {SOURCE_PREFIX}, found {stray}"

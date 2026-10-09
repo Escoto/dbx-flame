@@ -7,7 +7,7 @@ The Output layer writes with one of five verbs. Verbs are **layer-agnostic**: an
 | Column | Set by | Meaning |
 |---|---|---|
 | `__EXPORT_DATE` | Pipeline | Source export timestamp (from the file name, per `source.snapshot_time_pattern`) |
-| `__FILEPATH` | Pipeline | Source file the record arrived from |
+| `__SOURCE` | Pipeline | How and where the record was read: `FILE:<path as Unity Catalog reports it>` (`TABLE:` arrives with gh #35) |
 | `__ANCHOR_DT` | Pipeline | `source.anchor_dt` as a timestamp (only when configured) |
 | `__BRONZE_LAST_MODIFIED_DT` | Pipeline | Bronze ingest time (dropped on promotion) |
 | `__SILVER_LAST_MODIFIED_DT` | Output | Last framework write touching the record |
@@ -15,6 +15,8 @@ The Output layer writes with one of five verbs. Verbs are **layer-agnostic**: an
 | `__END_DATE` | Output | Validity end (NULL = open) |
 | `__CURRENT_FLAG` | Output | `'Y'` current version / `'N'` historical |
 | `__DELETED_FLAG` | Output | `'Y'` soft-deleted entity |
+
+`__SOURCE` and `__EXPORT_DATE` are written once, where the data enters the framework, and never overwritten on promotion. Every Silver and Gold row therefore still names the exact file it came from and when it was exported: record-level traceability, which table lineage alone can't give. `__EXPORT_DATE` is the only source of truth for time; nothing parses it back out of `__SOURCE`.
 
 Every table the framework writes also keeps `delta.dataSkippingStatsColumns` (set by `DeltaTableConfig`): Delta's default first 32 leaf columns, plus `__EXPORT_DATE` and `__ANCHOR_DT` wherever they sit, so filters on them can skip files. The property replaces Delta's default rather than adding to it, so it is recomputed after any write that evolves the schema. It also keeps the task's `output.tags` as Unity Catalog tags.
 

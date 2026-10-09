@@ -130,7 +130,7 @@ PREPROCESSORS = {"record_envelope": RecordEnvelope}
 ```
 
   `record_envelope` unwraps the common vendor JSON envelope (metadata:export_date + data[] → URI/DATA/EXPORT_DATE). There is deliberately no generic flattener: exploding nested arrays multiplies rows and denormalizes the data, so flattening a payload is left to its consumer. Adding a vendor shape = one registered class + config, no changes to `json_source`.
-- **Enrichment** (shared, applied after pre-processors): provenance columns (`__bronze_last_modified_dt`, `__filePath`, `__EXPORT_DATE` from the file-name regex), column sanitization (replace ` ,;{}()=./`, tab and newline with `_`, uppercase, drop `_rescued_data`), optional structured rename patterns.
+- **Enrichment** (shared, applied after pre-processors): provenance columns on file origins (`__bronze_last_modified_dt`, `__SOURCE` as `FILE:<path>`, `__EXPORT_DATE` from the file-name regex; a table origin carries the ones its Bronze wrote), column sanitization (replace ` ,;{}()=./`, tab and newline with `_`, uppercase, drop `_rescued_data`), optional structured rename patterns.
 
 ### 3.3 Typing (`dbx_flame.typecast`)
 
