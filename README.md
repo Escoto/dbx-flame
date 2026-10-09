@@ -36,7 +36,7 @@ output.schema_name: claims
 output.table: CLAIMS_BRONZE
 
 # Bronze → Silver
-source.origin: delta
+source.origin: table
 source.schema_name: claims
 source.table: CLAIMS_BRONZE
 output.verb: upsert

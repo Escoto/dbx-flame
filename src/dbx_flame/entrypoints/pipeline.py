@@ -89,7 +89,7 @@ def run_pipeline(ctx: Context) -> None:
         # inside prepare(): _metadata.file_path resolves only against the file source.
         # A micro-batch arriving in foreachBatch is a plain RDD that has already lost
         # it, so adding it there fails at run time on Auto Loader.
-        # A delta source needs none of this — it carries the columns its ingest wrote.
+        # A table source needs none of this — it carries the columns its ingest wrote.
         df = add_provenance(df, ctx)
 
     if df.isStreaming:

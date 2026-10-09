@@ -13,7 +13,7 @@ class Origin(StrEnum):
     CSV = "csv"
     JSON = "json"
     SAS = "sas"
-    DELTA = "delta"
+    TABLE = "table"
 
 
 FILE_ORIGINS = frozenset({Origin.CSV, Origin.JSON, Origin.SAS})
@@ -93,7 +93,7 @@ class SourceConfig(BaseModel):
     rename_patterns: list[str] = []
     options: SourceOptions = SourceOptions()
 
-    # Delta origin only: the catalog the source (and deletes) table lives in, resolved to
+    # Table origin only: the catalog the source (and deletes) table lives in, resolved to
     # {catalog}_{env} like the task's own. Unset means the task's catalog.
     catalog: Optional[str] = None
     schema_name: Optional[str] = None
@@ -151,18 +151,18 @@ class SourceConfig(BaseModel):
         if missing:
             problems.append(f"source.origin={self.origin.value} requires: {', '.join(missing)}")
 
-        if self.deletes_table and self.origin != Origin.DELTA:
-            problems.append("source.deletes_table requires source.origin=delta")
+        if self.deletes_table and self.origin != Origin.TABLE:
+            problems.append("source.deletes_table requires source.origin=table")
 
-        if self.catalog and self.origin != Origin.DELTA:
-            problems.append("source.catalog requires source.origin=delta")
+        if self.catalog and self.origin != Origin.TABLE:
+            problems.append("source.catalog requires source.origin=table")
 
         if self.snapshot_time_pattern and self.origin not in FILE_ORIGINS:
-            # A delta origin reads the __EXPORT_DATE its Bronze already parsed.
+            # A table origin reads the __EXPORT_DATE its Bronze already parsed.
             problems.append("source.snapshot_time_pattern applies to file origins only")
 
         if self.anchor_dt and self.origin not in FILE_ORIGINS:
-            # Written once at ingestion; a delta origin carries the column its Bronze wrote.
+            # Written once at ingestion; a table origin carries the column its Bronze wrote.
             problems.append("source.anchor_dt applies to file origins only (csv, json, sas)")
 
         if self.options.schema_hints and self.origin != Origin.JSON:

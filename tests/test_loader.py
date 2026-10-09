@@ -288,15 +288,15 @@ def test_anchor_dt_is_parsed_with_its_format():
 
 def test_increment_anchor_is_a_switch():
     """The column and its format belong to Bronze; Silver only reads __ANCHOR_DT."""
-    assert load_config({**DELTA_PARAMS, "source.increment_anchor": "true"}).source.increment_anchor
-    assert not load_config(DELTA_PARAMS).source.increment_anchor
+    assert load_config({**TABLE_PARAMS, "source.increment_anchor": "true"}).source.increment_anchor
+    assert not load_config(TABLE_PARAMS).source.increment_anchor
 
 
-DELTA_PARAMS = {
+TABLE_PARAMS = {
     "catalog": "cro",
     "env": "dev_01",
     "metadata_path": "/Volumes/cro_dev_01/meta/",
-    "source.origin": "delta",
+    "source.origin": "table",
     "source.schema_name": "bronze_cro",
     "source.table": "AGENTS_UPDATES",
     "output.verb": "scd2",
@@ -307,9 +307,15 @@ DELTA_PARAMS = {
 }
 
 
-def test_deletes_table_parsed_on_delta_origin():
-    config = load_config({**DELTA_PARAMS, "source.deletes_table": "AGENTS_DELETES"})
+def test_deletes_table_parsed_on_table_origin():
+    config = load_config({**TABLE_PARAMS, "source.deletes_table": "AGENTS_DELETES"})
     assert config.source.deletes_table == "AGENTS_DELETES"
+
+
+def test_the_retired_delta_origin_is_rejected():
+    """Renamed to `table` (gh #33) with no alias, so a stale task fails at Start."""
+    with pytest.raises(ConfigValidationError, match="source.origin"):
+        load_config({**TABLE_PARAMS, "source.origin": "delta"})
 
 
 # --- field-level validation ---------------------------------------------------
@@ -323,8 +329,8 @@ def test_file_origin_requires_path_and_directory(missing):
 
 
 @pytest.mark.parametrize("missing", ["source.schema_name", "source.table"])
-def test_delta_origin_requires_schema_and_table(missing):
-    params = {k: v for k, v in DELTA_PARAMS.items() if k != missing}
+def test_table_origin_requires_schema_and_table(missing):
+    params = {k: v for k, v in TABLE_PARAMS.items() if k != missing}
     with pytest.raises(ConfigValidationError, match=missing):
         load_config(params)
 
@@ -341,13 +347,13 @@ def test_missing_origin_fields_are_reported_together():
 
 def test_deletes_table_rejected_on_file_origin():
     params = {**MINIMAL_PARAMS, "source.deletes_table": "AGENTS_DELETES"}
-    with pytest.raises(ConfigValidationError, match="requires source.origin=delta"):
+    with pytest.raises(ConfigValidationError, match="requires source.origin=table"):
         load_config(params)
 
 
-def test_anchor_dt_rejected_on_delta_origin():
-    """A delta origin reads the __ANCHOR_DT its Bronze already wrote."""
-    params = {**DELTA_PARAMS, "source.anchor_dt.column": "UPDATED_DATE"}
+def test_anchor_dt_rejected_on_table_origin():
+    """A table origin reads the __ANCHOR_DT its Bronze already wrote."""
+    params = {**TABLE_PARAMS, "source.anchor_dt.column": "UPDATED_DATE"}
     with pytest.raises(ConfigValidationError, match="source.anchor_dt applies to file origins"):
         load_config(params)
 
@@ -437,9 +443,9 @@ def test_file_extension_with_glob_or_path_characters_rejected(value):
     [
         MINIMAL_PARAMS,
         {**MINIMAL_PARAMS, "source.origin": "sas"},
-        DELTA_PARAMS,
+        TABLE_PARAMS,
     ],
-    ids=["csv", "sas", "delta"],
+    ids=["csv", "sas", "table"],
 )
 def test_schema_hints_rejected_outside_json(params):
     """Elsewhere they'd be a silent no-op, or on CSV a path to silent NULLs."""

@@ -36,7 +36,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 
 - **Requires**: target only.
 - **Semantics**: write incoming records to the target with Delta `append` (with `mergeSchema` when schema evolution is enabled). No keys, no history columns beyond what the Pipeline added.
-- **Increments**: file origins via Auto Loader checkpoint; delta origin via streaming checkpoint.
+- **Increments**: file origins via Auto Loader checkpoint; table origin via streaming checkpoint.
 
 ## 2. FULL
 
@@ -66,7 +66,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 - **Optional**: `output.dedup.*`.
 - **Changes only**: every batch is a set of changes. A key the batch does not mention is left untouched — its absence is never read as a deletion. `snapshot_scope: full` is rejected: expiring and re-inserting every record on each load would turn Silver into a duplicate of Bronze. A source whose complete snapshot *is* the truth belongs on FULL (no history) or COMPLETE_DELTA with `snapshot_scope: full` (history kept).
 - **No deletes feed**: SCD2 runs per batch, and a stream has no way to cut a second source at the same point as its updates. A source that sends deletes separately belongs on COMPLETE_DELTA.
-- **Increments**: delta origin with streaming checkpoint (each micro-batch flows through the algorithm below); file origins supported the same way.
+- **Increments**: table origin with streaming checkpoint (each micro-batch flows through the algorithm below); file origins supported the same way.
 
 **Algorithm** (per batch):
 
@@ -86,7 +86,7 @@ Note: SCD2 collapses to *latest per key within the processed increment* (step 2)
 
 > *Everything not yet promoted, replayed step by step — every evolution of the data is represented in Silver.*
 
-- **Requires**: delta origin (`source.table` = updates table), `output.keys`, `output.event_time.column`.
+- **Requires**: table origin (`source.table` = updates table), `output.keys`, `output.event_time.column`.
 - **Optional**: deletes feed (§7), `output.dedup.*` (applied per snapshot), `output.snapshot_scope` (§6).
 - **Increments**: watermark — only source rows with `__EXPORT_DATE > max(target.__EXPORT_DATE)` (a typed timestamp comparison, not a string one; the watermark defaults to 1900-01-01 when the target is empty or absent). `source.increment_anchor: true` swaps `__EXPORT_DATE` for `__ANCHOR_DT`, the per-record date Bronze stamped; not with `snapshot_scope: full` (§6).
 - **Ordering contract**: exports must reach Silver in order. One that lands after a newer export was promoted is behind the watermark and is never read; reloading it is a manual step. The file-name timestamp is a snapshot's only identity, so an export split across files must stamp every part identically and deliver them all to the same run: parts with different stamps are separate exports (under `snapshot_scope: full` the last one supersedes the rest), and a part that arrives after its siblings were promoted sits on the watermark and is skipped.

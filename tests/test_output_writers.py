@@ -273,8 +273,8 @@ def test_upsert_collapses_duplicate_keys_within_one_batch(spark, database):
         database,
         dedup=DedupConfig(enabled=True, columns=["ID"], order_by="UPDATED"),
     )
-    # Through the pipeline, which dedups; a delta origin so no file stamp is needed.
-    ctx.config.source.origin = Origin.DELTA
+    # Through the pipeline, which dedups; a table origin so no file stamp is needed.
+    ctx.config.source.origin = Origin.TABLE
 
     _gate_and_write(
         _people(spark, [("1", "old", "2024-01-01"), ("1", "new", "2024-06-01")]),
@@ -287,8 +287,8 @@ def test_upsert_collapses_duplicate_keys_within_one_batch(spark, database):
 
 def test_upsert_dedups_by_keys_and_event_time_by_default(spark, database):
     ctx = _upsert_ctx(spark, database)
-    # Through the pipeline, which dedups; a delta origin so no file stamp is needed.
-    ctx.config.source.origin = Origin.DELTA
+    # Through the pipeline, which dedups; a table origin so no file stamp is needed.
+    ctx.config.source.origin = Origin.TABLE
 
     _gate_and_write(
         _people(spark, [("1", "new", "2024-06-01"), ("1", "old", "2024-01-01")]),

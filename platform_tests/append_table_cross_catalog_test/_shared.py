@@ -1,4 +1,4 @@
-"""Constants and assertions shared by the append_delta_cross_catalog_test steps.
+"""Constants and assertions shared by the append_table_cross_catalog_test steps.
 
 Deliberately dependency-free: these run as spark_python_task on a cluster, not
 under pytest, so a failed assert is what fails the task.
@@ -13,14 +13,14 @@ CATALOG = f"{sys.argv[2]}_{sys.argv[3]}"
 CONSUMER = f"{sys.argv[4]}_{sys.argv[3]}"
 SCHEMA = "functional_testing"
 
-BRONZE_TABLE = "APPEND_DELTA_CROSS_CATALOG_BRONZE_1"
-SILVER_TABLE = "APPEND_DELTA_CROSS_CATALOG_SILVER_1"
+BRONZE_TABLE = "APPEND_TABLE_CROSS_CATALOG_BRONZE_1"
+SILVER_TABLE = "APPEND_TABLE_CROSS_CATALOG_SILVER_1"
 
 VOLUME = f"/Volumes/{CATALOG}/{SCHEMA}/source_data"
 INBOUND = f"{VOLUME}/inbound"
 METADATA = f"{VOLUME}/metadata"
 CONSUMER_METADATA = f"/Volumes/{CONSUMER}/{SCHEMA}/source_data/metadata"
-SOURCE_DIRECTORY = "APPEND_DELTA_CROSS_CATALOG_SOURCE_1"
+SOURCE_DIRECTORY = "APPEND_TABLE_CROSS_CATALOG_SOURCE_1"
 
 # Where the framework keeps Silver's checkpoint: {metadata_path}/{catalog}/{schema}/{table}.
 SILVER_METADATA = f"{CONSUMER_METADATA}/{CONSUMER}/{SCHEMA}/{SILVER_TABLE}"

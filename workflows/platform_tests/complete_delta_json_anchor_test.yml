@@ -68,7 +68,7 @@ bronze_delta_params: &bronze_delta_params
 
 silver_params: &silver_params
   <<: *shared_params
-  source.origin: delta
+  source.origin: table
   source.schema_name: *schema
   output.verb: complete_delta
   output.schema_name: *schema

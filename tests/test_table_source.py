@@ -1,4 +1,4 @@
-"""Tests for pipelines.delta_source — checkpoint and watermark increments."""
+"""Tests for pipelines.table_source — checkpoint and watermark increments."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from dbx_flame.context.config import (
     Verb,
 )
 from dbx_flame.context.context import Context, RunIdentity
-from dbx_flame.pipelines.delta_source import DEFAULT_WATERMARK, DeltaSource
+from dbx_flame.pipelines.table_source import DEFAULT_WATERMARK, TableSource
 from dbx_flame.policies.platform import PlatformPolicyViolation
 
 RUN = RunIdentity(
@@ -47,7 +47,7 @@ def _write(spark, database, table, rows):
 
 def _context(spark, database, strategy, *, deletes=None, **source_overrides):
     """A Context built by hand: build_context resolves Unity Catalog three-part names."""
-    source = dict(origin=Origin.DELTA, schema_name="bronze_cro", table="UPDATES")
+    source = dict(origin=Origin.TABLE, schema_name="bronze_cro", table="UPDATES")
     source.update(source_overrides)
     config = TaskConfig(
         catalog="cro",
@@ -76,7 +76,7 @@ def test_checkpoint_strategy_returns_a_stream(spark, database):
     _write(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))])
     ctx = _context(spark, database, IncrementStrategy.CHECKPOINT)
 
-    result = DeltaSource().read(ctx)
+    result = TableSource().read(ctx)
 
     assert result.isStreaming
 
@@ -85,7 +85,7 @@ def test_watermark_strategy_returns_a_batch(spark, database):
     _write(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))])
     ctx = _context(spark, database, IncrementStrategy.WATERMARK)
 
-    result = DeltaSource().read(ctx)
+    result = TableSource().read(ctx)
 
     assert not result.isStreaming
 
@@ -94,13 +94,13 @@ def test_an_absent_target_takes_the_whole_source(spark, database):
     _write(spark, database, "UPDATES", [("1", datetime(2024, 1, 2)), ("2", datetime(1999, 5, 5))])
     ctx = _context(spark, database, IncrementStrategy.WATERMARK)
 
-    assert DeltaSource().read(ctx).count() == 2
+    assert TableSource().read(ctx).count() == 2
 
 
 def test_the_default_watermark_predates_any_export(spark, database):
     _write(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))])
     ctx = _context(spark, database, IncrementStrategy.WATERMARK)
-    source = DeltaSource()
+    source = TableSource()
 
     source.read(ctx)
 
@@ -117,7 +117,7 @@ def test_only_rows_newer_than_the_target_are_read(spark, database):
     )
     ctx = _context(spark, database, IncrementStrategy.WATERMARK)
 
-    rows = DeltaSource().read(ctx).collect()
+    rows = TableSource().read(ctx).collect()
 
     assert [row["ID"] for row in rows] == ["2"]
 
@@ -134,7 +134,7 @@ def test_a_row_exactly_on_the_watermark_is_excluded(spark, database):
     )
     ctx = _context(spark, database, IncrementStrategy.WATERMARK)
 
-    rows = DeltaSource().read(ctx).collect()
+    rows = TableSource().read(ctx).collect()
 
     assert [row["ID"] for row in rows] == ["2"]
 
@@ -144,14 +144,14 @@ def test_an_empty_target_falls_back_to_the_default_watermark(spark, database):
     _write(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))])
     ctx = _context(spark, database, IncrementStrategy.WATERMARK)
 
-    assert DeltaSource().read(ctx).count() == 1
+    assert TableSource().read(ctx).count() == 1
 
 
 def test_no_deletes_feed_returns_none(spark, database):
     _write(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))])
     ctx = _context(spark, database, IncrementStrategy.WATERMARK)
 
-    assert DeltaSource().read_deletes(ctx) is None
+    assert TableSource().read_deletes(ctx) is None
 
 
 def test_the_deletes_feed_is_filtered_like_the_updates(spark, database):
@@ -165,7 +165,7 @@ def test_the_deletes_feed_is_filtered_like_the_updates(spark, database):
     )
     ctx = _context(spark, database, IncrementStrategy.WATERMARK, deletes="DELETES")
 
-    rows = DeltaSource().read_deletes(ctx).collect()
+    rows = TableSource().read_deletes(ctx).collect()
 
     assert [row["ID"] for row in rows] == ["8"]
 
@@ -175,7 +175,7 @@ def test_the_deletes_feed_streams_under_the_checkpoint_strategy(spark, database)
     _write(spark, database, "DELETES", [("9", datetime(2024, 1, 2))])
     ctx = _context(spark, database, IncrementStrategy.CHECKPOINT, deletes="DELETES")
 
-    assert DeltaSource().read_deletes(ctx).isStreaming
+    assert TableSource().read_deletes(ctx).isStreaming
 
 
 def test_updates_and_deletes_are_cut_at_the_same_watermark(spark, database):
@@ -184,7 +184,7 @@ def test_updates_and_deletes_are_cut_at_the_same_watermark(spark, database):
     _write(spark, database, "UPDATES", [("2", datetime(2024, 1, 2))])
     _write(spark, database, "DELETES", [("3", datetime(2024, 1, 2))])
     ctx = _context(spark, database, IncrementStrategy.WATERMARK, deletes="DELETES")
-    source = DeltaSource()
+    source = TableSource()
 
     assert source.read(ctx).count() == 1
 
@@ -198,7 +198,7 @@ def test_the_resolved_watermark_is_logged(spark, database):
     _write(spark, database, "UPDATES", [("2", datetime(2024, 1, 4))])
     ctx = _context(spark, database, IncrementStrategy.WATERMARK)
 
-    DeltaSource().read(ctx)
+    TableSource().read(ctx)
 
     logged = ctx.logger.info.call_args
     assert logged.kwargs["name"] == "watermark_resolved"
@@ -207,7 +207,7 @@ def test_the_resolved_watermark_is_logged(spark, database):
 
 def _drain(ctx, sink: str, checkpoint: str) -> None:
     query = (
-        DeltaSource()
+        TableSource()
         .read(ctx)
         .writeStream.format("delta")
         .outputMode("append")
@@ -254,7 +254,7 @@ def test_a_record_anchor_reads_nothing_when_no_record_changed(spark, database):
         )
     ctx = _context(spark, database, IncrementStrategy.WATERMARK, increment_anchor=True)
 
-    assert DeltaSource().read(ctx).count() == 0
+    assert TableSource().read(ctx).count() == 0
 
 
 def test_a_record_anchor_still_picks_up_a_changed_record(spark, database):
@@ -263,7 +263,7 @@ def test_a_record_anchor_still_picks_up_a_changed_record(spark, database):
     _snapshot(spark, database, "UPDATES", [("2", datetime(2024, 3, 1), datetime(2024, 1, 2))])
     ctx = _context(spark, database, IncrementStrategy.WATERMARK, increment_anchor=True)
 
-    rows = DeltaSource().read(ctx).collect()
+    rows = TableSource().read(ctx).collect()
 
     assert [row["ID"] for row in rows] == ["2"]
 
@@ -273,7 +273,7 @@ def test_the_anchor_filter_reaches_the_scan(spark, database):
     _snapshot(spark, database, "UPDATES", [("1", datetime(2024, 1, 2), datetime(2024, 1, 2))])
     ctx = _context(spark, database, IncrementStrategy.WATERMARK, increment_anchor=True)
 
-    plan = DeltaSource().read(ctx)._jdf.queryExecution().executedPlan().toString()
+    plan = TableSource().read(ctx)._jdf.queryExecution().executedPlan().toString()
 
     assert re.search(r"DataFilters: \[[^\]]*\(__ANCHOR_DT#\d+ >", plan), plan
 
@@ -289,7 +289,7 @@ def test_an_anchored_read_refuses_a_table_without_anchor_dt(spark, database, uns
     ctx = _context(
         spark, database, IncrementStrategy.WATERMARK, deletes="DELETIONS", increment_anchor=True
     )
-    source = DeltaSource()
+    source = TableSource()
 
     with pytest.raises(PlatformPolicyViolation, match=f"`{unstamped}` has no __ANCHOR_DT"):
         source.read(ctx)
@@ -301,6 +301,6 @@ def test_the_resolved_anchor_is_named_in_the_log(spark, database):
     _snapshot(spark, database, "UPDATES", [("1", datetime(2024, 1, 2), datetime(2024, 1, 2))])
     ctx = _context(spark, database, IncrementStrategy.WATERMARK, increment_anchor=True)
 
-    DeltaSource().read(ctx)
+    TableSource().read(ctx)
 
     assert "__ANCHOR_DT" in ctx.logger.info.call_args.kwargs["description"]

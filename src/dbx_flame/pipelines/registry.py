@@ -9,7 +9,7 @@ from __future__ import annotations
 from dbx_flame.context.config import Origin
 from dbx_flame.pipelines.base import SourcePipeline
 from dbx_flame.pipelines.csv_source import CsvSource
-from dbx_flame.pipelines.delta_source import DeltaSource
+from dbx_flame.pipelines.table_source import TableSource
 from dbx_flame.pipelines.json_source import JsonSource
 from dbx_flame.pipelines.sas_source import SasSource
 
@@ -19,5 +19,5 @@ SOURCES: dict[Origin, type[SourcePipeline]] = {
     Origin.CSV: CsvSource,
     Origin.JSON: JsonSource,
     Origin.SAS: SasSource,
-    Origin.DELTA: DeltaSource,
+    Origin.TABLE: TableSource,
 }

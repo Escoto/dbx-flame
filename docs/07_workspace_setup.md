@@ -30,7 +30,7 @@ reads and writes in catalog `mdm_dev` (`{catalog}_{env}`), and logs to
 - **`env` is the bundle target.** Workflows pass `env: ${bundle.target}`, so deploying with
   `-t dev` means `_dev` everywhere. A target named `dev_01` needs `monitoring_dev_01`.
 - **One catalog per task.** A task reads and writes in the same `{catalog}_{env}`: a
-  `delta` source (`source.schema_name`, `source.table`) is looked up there too. Bronze and
+  `table` source (`source.schema_name`, `source.table`) is looked up there too. Bronze and
   Silver of a dataset therefore live in the same catalog, usually in different schemas.
 - **Table names are UPPERCASE**, which is validated at Start. Catalog, schema and volume
   names have no such rule; keep them lowercase.

@@ -36,7 +36,7 @@ def _cast_config(tmp_path, body: str) -> str:
 
 
 def _typed_batch(spark):
-    """A batch that already carries real types, as a Delta source hands one over."""
+    """A batch that already carries real types, as a table source hands one over."""
     return spark.createDataFrame(
         [("1", 42, Decimal("1.50"), datetime(2024, 1, 15, 10, 30))],
         "ID string, AGE int, SCORE decimal(10,2), UPDATED timestamp",

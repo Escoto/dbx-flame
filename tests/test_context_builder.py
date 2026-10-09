@@ -74,10 +74,10 @@ def test_target_table_fqn(mock_spark):
     assert ctx.target_table == "`cro_dev_01`.`silver_cro`.`SUBJECTS`"
 
 
-def test_source_table_for_delta_origin(mock_spark):
+def test_source_table_for_table_origin(mock_spark):
     config = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze_cro",
             table="SUBJECTS_UPDATES",
         ),
@@ -95,7 +95,7 @@ def test_source_table_none_for_file_origin(mock_spark):
 def test_deletes_table_set(mock_spark):
     config = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze_cro",
             table="SUBJECTS_UPDATES",
             deletes_table="SUBJECTS_DELETES",
@@ -157,7 +157,7 @@ def test_inbound_glob_keeps_digits_in_the_extension(mock_spark):
 def test_inbound_glob_none_for_delta(mock_spark):
     config = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze_cro",
             table="SUBJECTS_UPDATES",
         ),
@@ -214,11 +214,11 @@ def test_verb_requires_event_time_for_scd2(mock_spark):
         build_context(config, mock_spark, RUN)
 
 
-def test_snapshot_time_pattern_is_refused_on_a_delta_origin():
-    """A delta origin reads the __EXPORT_DATE its Bronze already parsed."""
+def test_snapshot_time_pattern_is_refused_on_a_table_origin():
+    """A table origin reads the __EXPORT_DATE its Bronze already parsed."""
     with pytest.raises(ValueError, match="snapshot_time_pattern applies to file origins"):
         SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze",
             table="T_UPDATES",
             snapshot_time_pattern=SnapshotTimePattern.DATETIME,
@@ -244,7 +244,7 @@ def test_verb_full_no_extra_requirements(mock_spark):
 def test_scd2_with_all_requirements(mock_spark):
     config = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze",
             table="T_UPDATES",
         ),
@@ -263,7 +263,7 @@ def test_scd2_with_all_requirements(mock_spark):
 def test_complete_delta_with_all_requirements(mock_spark):
     config = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze",
             table="T_UPDATES",
         ),
@@ -306,10 +306,10 @@ def test_complete_delta_rejects_file_origin(mock_spark):
         build_context(config, mock_spark, RUN)
 
 
-def test_complete_delta_accepts_delta_origin():
+def test_complete_delta_accepts_table_origin():
     config = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze",
             table="T_UPDATES",
         ),
@@ -330,7 +330,7 @@ def test_error_names_the_supported_origins():
     )
     errors = validate_requirements(config)
     assert len(errors) == 1
-    assert "supported: delta" in errors[0]
+    assert "supported: table" in errors[0]
 
 
 def test_every_other_verb_accepts_any_origin():
@@ -342,7 +342,7 @@ def test_every_other_verb_accepts_any_origin():
 def test_deletes_feed_rejected_for_append(mock_spark):
     config = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze",
             table="T_UPDATES",
             deletes_table="T_DELETES",
@@ -371,7 +371,7 @@ def test_deletes_feed_rejected_for_scd2():
     same point as its updates. Deletes stay a COMPLETE_DELTA feature."""
     config = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze",
             table="T_UPDATES",
             deletes_table="T_DELETES",
@@ -391,7 +391,7 @@ def test_deletes_feed_rejected_for_scd2():
 def test_deletes_feed_allowed_for_complete_delta():
     config = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze",
             table="T_UPDATES",
             deletes_table="T_DELETES",
@@ -412,7 +412,7 @@ def test_half_a_deletes_feed_is_rejected():
     """A deletes table with no keys retires nothing and still reports success."""
     config = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze",
             table="T_UPDATES",
             deletes_table="T_DELETES",
@@ -445,7 +445,7 @@ def test_snapshot_scope_full_rejected_for_append(mock_spark):
 def test_snapshot_scope_full_rejected_for_scd2():
     """SCD2 takes changes only; a full-snapshot source belongs on FULL or COMPLETE_DELTA."""
     config = _make_config(
-        source=SourceConfig(origin=Origin.DELTA, schema_name="bronze", table="T_UPDATES"),
+        source=SourceConfig(origin=Origin.TABLE, schema_name="bronze", table="T_UPDATES"),
         output=OutputConfig(
             verb=Verb.SCD2,
             schema_name="silver",
@@ -487,10 +487,10 @@ def test_verb_requirements_derived_from_writers():
 
 def test_increment_strategy_declared_by_verb(mock_spark):
     """Not a parameter: the verb decides, and Context carries the resolved value."""
-    delta_source = SourceConfig(origin=Origin.DELTA, schema_name="bronze", table="T_UPDATES")
+    table_source = SourceConfig(origin=Origin.TABLE, schema_name="bronze", table="T_UPDATES")
 
     scd2 = _make_config(
-        source=delta_source,
+        source=table_source,
         output=OutputConfig(
             verb=Verb.SCD2,
             schema_name="silver",
@@ -504,7 +504,7 @@ def test_increment_strategy_declared_by_verb(mock_spark):
 
     complete_delta = _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze",
             table="T_UPDATES",
         ),
@@ -532,7 +532,7 @@ def test_metadata_path_without_a_trailing_slash(mock_spark):
 
 def _scd2(**source_overrides) -> TaskConfig:
     source: dict[str, Any] = dict(
-        origin=Origin.DELTA, schema_name="bronze_cro", table="SUBJECTS_UPDATES"
+        origin=Origin.TABLE, schema_name="bronze_cro", table="SUBJECTS_UPDATES"
     )
     source.update(source_overrides)
     return _make_config(
@@ -583,7 +583,7 @@ def _anchored_complete_delta(scope: SnapshotScope) -> TaskConfig:
     output = _complete_delta_output().model_copy(update={"snapshot_scope": scope})
     return _make_config(
         source=SourceConfig(
-            origin=Origin.DELTA,
+            origin=Origin.TABLE,
             schema_name="bronze",
             table="T_UPDATES",
             increment_anchor=True,
@@ -625,7 +625,7 @@ def test_the_verb_default_applies_when_nothing_is_configured(mock_spark):
 
 def _cross_catalog_config(**source_overrides) -> TaskConfig:
     source = dict(
-        origin=Origin.DELTA,
+        origin=Origin.TABLE,
         catalog="raw",
         schema_name="bronze_cro",
         table="SUBJECTS_UPDATES",
@@ -668,7 +668,7 @@ def test_without_a_source_catalog_the_source_stays_in_the_task_catalog(mock_spar
 
 
 def test_a_source_catalog_is_rejected_on_a_file_origin():
-    with pytest.raises(ValueError, match="source.catalog requires source.origin=delta"):
+    with pytest.raises(ValueError, match="source.catalog requires source.origin=table"):
         SourceConfig(origin=Origin.CSV, path="/Volumes/in/", directory="agents", catalog="raw")
 
 

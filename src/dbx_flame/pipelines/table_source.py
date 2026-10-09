@@ -1,4 +1,4 @@
-"""Delta table origin — checkpoint or watermark increments."""
+"""Table origin — checkpoint or watermark increments."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 DEFAULT_WATERMARK = datetime(1900, 1, 1)
 
 _EXPORT_DATE = "__EXPORT_DATE"
-_SOURCE = "DeltaSource"
+_SOURCE = "TableSource"
 
 
 def _anchor_column(ctx: Context) -> str:
@@ -43,7 +43,7 @@ def _require_anchor(ctx: Context, table: str) -> None:
         )
 
 
-class DeltaSource:
+class TableSource:
     """Read from a Delta table using the run's configured increment strategy."""
 
     def __init__(self) -> None:
@@ -53,7 +53,7 @@ class DeltaSource:
 
     def read(self, ctx: Context) -> DataFrame:
         table = ctx.source_table
-        assert table  # guaranteed by SourceConfig for delta origins
+        assert table  # guaranteed by SourceConfig for table origins
         return self._read_table(ctx, table)
 
     def read_deletes(self, ctx: Context) -> Optional[DataFrame]:
