@@ -377,7 +377,7 @@ def build_context(
     inbound_glob: str | None = None
     source = config.source
 
-    if source.origin == Origin.DELTA:
+    if source.origin == Origin.TABLE:
         schema_name, table = source.schema_name, source.table
         assert schema_name and table  # guaranteed by SourceConfig
         source_catalog = _env_catalog(source.catalog, config.env) if source.catalog else catalog

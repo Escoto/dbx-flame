@@ -67,7 +67,7 @@ Gold is SQL, not a verb. The framework's job ends at Silver.
 | Term | Meaning |
 |------|---------|
 | **Context** | The single typed object produced by the Start layer: validated config + Spark session + job/run identity + logger. The only thing layers share besides DataFrames. |
-| **Origin** | Where the data comes from: `csv`, `json`, `sas`, `delta`. Determines the Pipeline implementation. |
+| **Origin** | Where the data comes from: `csv`, `json`, `sas`, `table`. Determines the Pipeline implementation. |
 | **Verb** | How data is written: `append`, `full`, `upsert`, `scd2`, `complete_delta`. Determines the Output implementation. See [03_write_verbs.md](03_write_verbs.md). |
 | **Pre-processor** | A named, config-selected DataFrame transform applied by the Pipeline layer right after reading (e.g. `record_envelope`). |
 | **Snapshot** | One source export, identified by the timestamp embedded in its file name. COMPLETE_DELTA replays snapshots one by one, in order. |

@@ -30,7 +30,7 @@ from dbx_flame.output.mechanics import (
     require_valid_times,
     key_condition,
 )
-from dbx_flame.pipelines.delta_source import DeltaSource
+from dbx_flame.pipelines.table_source import TableSource
 from dbx_flame.policies.runner import PolicyRunner
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ class CompleteDeltaWriter:
         supports_deletes=True,
         supports_snapshot_scope=True,
         # snapshot replay needs a Delta updates table; file origins cannot feed it
-        origins=frozenset({Origin.DELTA}),
+        origins=frozenset({Origin.TABLE}),
         per_snapshot=True,
         # Watermark only: replay has to see every snapshot, so a strategy that
         # keeps just the newest one would defeat the purpose of the verb.
@@ -62,7 +62,7 @@ class CompleteDeltaWriter:
         # The deletes feed is read here rather than by the pipeline spine because only
         # this verb has one. Both reads cut at the same point: the watermark comes from
         # the target, and nothing has been written to it yet.
-        deletes = DeltaSource().read_deletes(ctx)
+        deletes = TableSource().read_deletes(ctx)
         if deletes is not None:
             configured = ctx.config.output.deletes
             assert configured and configured.event_time  # guaranteed by config validation

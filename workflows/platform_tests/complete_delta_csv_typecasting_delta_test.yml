@@ -62,7 +62,7 @@ bronze_params: &bronze_params
 
 silver_params: &silver_params
   <<: *shared_params
-  source.origin: delta
+  source.origin: table
   source.schema_name: *schema
   source.table: *bronze_table
   # How to read the snapshot timestamp out of __FILEPATH: 14 digits, yyyyMMddHHmmss.

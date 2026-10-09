@@ -30,7 +30,7 @@ RUN = RunIdentity("wf", "wfrun", "task", "taskrun")
 
 def _ctx(spark, origin=Origin.CSV, **source_overrides):
     source = dict(origin=origin)
-    if origin == Origin.DELTA:
+    if origin == Origin.TABLE:
         source.update(schema_name="bronze", table="PEOPLE")
     else:
         source.update(path="/Volumes/in/", directory="people")
@@ -106,14 +106,14 @@ def test_provenance_is_attached_before_the_stream_not_inside_it(spark, tmp_path)
     assert "__FILEPATH" not in prepare(raw, _ctx(spark)).columns
 
 
-def test_a_delta_origin_keeps_the_provenance_it_arrived_with(spark):
+def test_a_table_origin_keeps_the_provenance_it_arrived_with(spark):
     """Re-deriving it would need _metadata.file_path, which a table read does not have."""
     df = spark.createDataFrame(
         [("1", "alice", datetime(2024, 1, 15))],
         "ID string, NAME string, __EXPORT_DATE timestamp",
     )
 
-    result = prepare(df, _ctx(spark, origin=Origin.DELTA))
+    result = prepare(df, _ctx(spark, origin=Origin.TABLE))
 
     assert result.columns == ["ID", "NAME", "__EXPORT_DATE"]
     assert result.collect()[0]["__EXPORT_DATE"] == datetime(2024, 1, 15)
@@ -122,17 +122,17 @@ def test_a_delta_origin_keeps_the_provenance_it_arrived_with(spark):
 def test_rename_patterns_run_after_sanitization(spark):
     df = spark.createDataFrame([("1",)], "`agent id__v` string")
 
-    result = prepare(df, _ctx(spark, origin=Origin.DELTA, rename_patterns=["__[Vv]$="]))
+    result = prepare(df, _ctx(spark, origin=Origin.TABLE, rename_patterns=["__[Vv]$="]))
 
     assert result.columns == ["AGENT_ID"]
 
 
 def test_a_batch_source_writes_directly(spark):
-    ctx = _ctx(spark, origin=Origin.DELTA)
+    ctx = _ctx(spark, origin=Origin.TABLE)
     df = spark.createDataFrame([("1",)], "ID string")
     writer = MagicMock(requires=Requirements())
 
-    with patch.dict(SOURCES, {Origin.DELTA: lambda: MagicMock(read=lambda _ctx: df)}):
+    with patch.dict(SOURCES, {Origin.TABLE: lambda: MagicMock(read=lambda _ctx: df)}):
         with patch.dict(WRITER_BY_VERB, {Verb.APPEND: lambda: writer}):
             run_pipeline(ctx)
 
@@ -143,13 +143,13 @@ def test_a_batch_source_writes_directly(spark):
 def test_a_streaming_source_is_driven_and_awaited():
     """Returning without awaiting would let a task report success before the write."""
     ctx = MagicMock()
-    # A delta source, so the driver is exercised without provenance wrapping the mock.
-    ctx.config.source.origin = Origin.DELTA
+    # A table source, so the driver is exercised without provenance wrapping the mock.
+    ctx.config.source.origin = Origin.TABLE
     ctx.config.output.verb = Verb.APPEND
     streaming = MagicMock()
     streaming.isStreaming = True
 
-    with patch.dict(SOURCES, {Origin.DELTA: lambda: MagicMock(read=lambda _c: streaming)}):
+    with patch.dict(SOURCES, {Origin.TABLE: lambda: MagicMock(read=lambda _c: streaming)}):
         with patch.dict(WRITER_BY_VERB, {Verb.APPEND: lambda: MagicMock()}):
             run_pipeline(ctx)
 
@@ -169,7 +169,7 @@ def test_unimplemented_origins_fail_at_read_not_at_dispatch(origin):
 
 def test_only_a_keyed_verb_checks_its_event_time(spark):
     """On APPEND and FULL an event time is unused, so a NULL there mustn't fail the batch."""
-    ctx = _ctx(spark, origin=Origin.DELTA)
+    ctx = _ctx(spark, origin=Origin.TABLE)
     ctx.config.output.event_time = EventTimeConfig(column="UPDATED")
     df = spark.createDataFrame([("1", None)], "ID string, UPDATED string")
 
@@ -184,7 +184,7 @@ def test_only_a_keyed_verb_checks_its_event_time(spark):
 
 
 def _keyed_ctx(spark):
-    ctx = _ctx(spark, origin=Origin.DELTA)
+    ctx = _ctx(spark, origin=Origin.TABLE)
     ctx.config.output.keys = ["ID"]
     ctx.config.output.event_time = EventTimeConfig(column="UPDATED")
     return ctx

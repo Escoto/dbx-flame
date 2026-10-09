@@ -16,7 +16,7 @@ dbx_flame/
 │   │   ├── csv_source.py            #   Auto Loader csv (also txt via file_extension)
 │   │   ├── json_source.py           #   Auto Loader json
 │   │   ├── sas_source.py            #   Auto Loader binaryFile discovery + pandas.read_sas
-│   │   ├── delta_source.py          #   Delta table origin (checkpoint or watermark increments)
+│   │   ├── table_source.py          #   Table origin (checkpoint or watermark increments)
 │   │   ├── preprocessors.py         #   registry: record_envelope
 │   │   └── enrichment.py            #   provenance columns, column sanitization, rename patterns
 │   ├── typecast/                    # LAYER 3 — Typing
@@ -95,13 +95,13 @@ class Context:
     logger: AuditLogger           # bound to the resolved target table
     # resolved conveniences (all derived from config, computed once):
     catalog: str                  # f"{catalog}_{env}"
-    source_table: str | None      # fq backticked name, delta origins
+    source_table: str | None      # fq backticked name, table origins
     deletes_table: str | None
     target_table: str             # fq backticked name
     inbound_glob: str | None      # file origins
     checkpoint_location: str
     schema_hints_location: str
-    increment_strategy: IncrementStrategy   # delta origins; declared by the verb
+    increment_strategy: IncrementStrategy   # table origins; declared by the verb
 ```
 
 Rules:
@@ -118,7 +118,7 @@ class SourcePipeline(Protocol):
 
 - A "batch" here is simply the DataFrame in hand — an updates batch or a deletes batch; there is no wrapper type. `read` returns the updates; where a verb supports a deletes feed, `read_deletes` returns it (or `None`).
 - File origins return an Auto Loader streaming DataFrame (`availableNow` semantics applied at write time); `sas` returns a batch-per-file iterator internally but exposes the same downstream flow.
-- `delta` origin supports two increment strategies (declared by the verb): `checkpoint` (Spark streaming from the source table — used by SCD2/APPEND/FULL from Delta) and `watermark` (`__EXPORT_DATE > max(target.__EXPORT_DATE)` — used by COMPLETE_DELTA). It also exposes the optional **deletes feed** as a second DataFrame.
+- `table` origin supports two increment strategies (declared by the verb): `checkpoint` (Spark streaming from the source table — used by SCD2/APPEND/FULL from a table) and `watermark` (`__EXPORT_DATE > max(target.__EXPORT_DATE)` — used by COMPLETE_DELTA). It also exposes the optional **deletes feed** as a second DataFrame.
 - **Pre-processors**: `source.preprocessors` is an ordered list of names resolved against a registry:
 
 ```python
@@ -180,7 +180,7 @@ class Writer(Protocol):
 |---|---|
 | Invalid/missing/unknown config | Aggregated `ConfigValidationError` at Start; nothing executed |
 | Unknown origin / verb | Config validation error (enum) |
-| Source table missing (delta origin) | `RuntimeError` before any write |
+| Source table missing (table origin) | `RuntimeError` before any write |
 | Target absent + empty incoming schema | Error — there is nothing to define the table from |
 | Cast silent-NULL detected | `PlatformPolicyViolation` (`cast_silent_null`) with one example value per column |
 | `error`-criticality check failed | `PolicyViolation` after all checks evaluated |

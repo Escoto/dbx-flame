@@ -64,7 +64,7 @@ bronze_delta_params: &bronze_delta_params
 # Both feeds merge into one silver table under the same keys and event time.
 silver_params: &silver_params
   <<: *shared_params
-  source.origin: delta
+  source.origin: table
   source.schema_name: *schema
   # How to read the snapshot timestamp out of __FILEPATH: 14 digits, yyyyMMddHHmmss.
   output.verb: complete_delta

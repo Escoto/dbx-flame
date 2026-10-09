@@ -82,7 +82,7 @@ def _ctx(
         env="dev_01",
         metadata_path="/Volumes/cro_dev_01/meta/",
         schema_evolution=schema_evolution,
-        source=source or SourceConfig(origin=Origin.DELTA, schema_name="bronze", table="SOURCE"),
+        source=source or SourceConfig(origin=Origin.TABLE, schema_name="bronze", table="SOURCE"),
         output=OutputConfig(**output),
     )
     deletes_table = config.source.deletes_table
@@ -283,7 +283,7 @@ def _snapshot_subjects(spark, rows):
 
 def _complete_delta_ctx(spark, database, output=None, **source_overrides):
     source = SourceConfig(
-        origin=Origin.DELTA,
+        origin=Origin.TABLE,
         schema_name="bronze",
         table="SOURCE",
         **source_overrides,

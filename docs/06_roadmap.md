@@ -36,7 +36,7 @@ Context → Pipeline/Typing → Writers → Policies → remaining origins.
 
 ## P2 — Pipeline (CSV + Delta) and Typing
 
-- `pipelines/`: `csv_source` (Auto Loader incl. `txt` extension, options, schema hints/evolution), `delta_source` (checkpoint + watermark strategies, deletes feed exposure), `enrichment` (provenance, sanitization, rename patterns), pre-processor registry.
+- `pipelines/`: `csv_source` (Auto Loader incl. `txt` extension, options, schema hints/evolution), `table_source` (checkpoint + watermark strategies, deletes feed exposure), `enrichment` (provenance, sanitization, rename patterns), pre-processor registry.
 - `typecast/`: cast service with single-pass validation and metadata-column exemption.
 
 **Exit**: a CSV fixture flows source → typed DataFrame with correct provenance/sanitization; unit tests for both increment strategies pass.

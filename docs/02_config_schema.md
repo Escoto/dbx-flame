@@ -40,7 +40,7 @@ env: dev                          # str, required   (always ${bundle.target})
 metadata_path: /Volumes/clinical_dev/.../metadata/   # str, required; a Volume in {catalog}_{env}
 
 # ── source (Layer 2: Pipeline) ───────────────────────────
-source.origin: csv                # enum: csv | json | sas | delta   (required)
+source.origin: csv                # enum: csv | json | sas | table   (required)
 
 # file origins (csv/json/sas):
 source.path: /Volumes/.../inbound/      # base volume path
@@ -62,7 +62,7 @@ source.options.escape: "\\"             # csv/json (default "\")
 source.options.multiline: true          # csv/json (default true)
 source.options.schema_hints: "ID STRING"  # json only; optional Auto Loader hints
 
-# delta origin:
+# table origin:
 source.catalog: raw                    # optional; the source's catalog, as {catalog}_{env}
                                        #   unset → the task's catalog
 source.schema_name: bronze_main          # schema of the source table
@@ -102,7 +102,7 @@ output.tags.project: dbx-flame          # Unity Catalog tags on the target, one 
 
 Notes:
 
-- `source.catalog` lets a delta-origin task read its source and deletes tables from another
+- `source.catalog` lets a table-origin task read its source and deletes tables from another
   catalog in the same metastore, so each layer can have a catalog of its own. The consumer
   tracks its own consumption: the target, its checkpoints and the audit row all stay in the
   task's `catalog`, which is why `metadata_path` must be a Volume there. The job's identity
@@ -115,7 +115,7 @@ Notes:
 - `source.snapshot_time_pattern` is the export stamp agreed with the source, and Bronze
   parses `__EXPORT_DATE` from it. Only the configured pattern is read. A file whose name
   doesn't carry it fails the run before anything from its batch is written, so it never
-  lands in Bronze; remove or rename it to continue. File origins only: a delta origin
+  lands in Bronze; remove or rename it to continue. File origins only: a table origin
   reads the `__EXPORT_DATE` its Bronze already parsed.
 - `source.anchor_dt` names a per-record date, typically a modification date. The Bronze
   task copies it, after typing, into `__ANCHOR_DT` as a timestamp, leaving the original
@@ -160,7 +160,7 @@ Verbs are layer-agnostic; the Start layer enforces this matrix (each writer *dec
 |---|---|---|---|---|---|
 | **any origin** | `output.*` target | `output.*` target | + `output.keys` | + `output.keys`, `output.event_time.column` | — |
 | **file origins** (csv/json/sas) | typical Inbound→Bronze | supported | supported | supported | not supported (needs a Delta updates table) |
-| **delta origin** | supported | supported | supported | typical Bronze→Silver | optional `source.deletes_table` (with `output.deletes.*`) |
+| **table origin** | supported | supported | supported | typical Bronze→Silver | optional `source.deletes_table` (with `output.deletes.*`) |
 | **deletes feed** | — | — | — | — | optional |
 | **`snapshot_scope: full`** | — | — | — | — | allowed |
 
@@ -188,7 +188,7 @@ documentation](https://docs.databricks.com/ingestion/auto-loader/schema.html) fo
 does on the read. On the write they reduce to two outcomes: `add_new_columns` and
 `add_new_columns_with_type_widening` let the target grow, the rest refuse.
 
-Any mode is valid for any origin. A delta origin has no Auto Loader, so only the write
+Any mode is valid for any origin. A table origin has no Auto Loader, so only the write
 half applies there; the framework works that out rather than asking.
 
 Under `add_new_columns`, a new column fails the run once. This is standard Auto Loader
@@ -261,7 +261,7 @@ A Bronze→Silver promotion task, carrying history with COMPLETE_DELTA and a del
     entry_point: dbx-flame
     named_parameters:
       <<: [*basic_config_params]           # catalog, env, metadata_path anchors
-      source.origin: delta
+      source.origin: table
       source.schema_name: functional_testing
       source.table: *updates_table
       source.deletes_table: *deletes_table

@@ -10,18 +10,18 @@
 # This is also the layout a federated source will use: a full read appended into the
 # consumer's Bronze (gh #28).
 
-base: &base ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test
-cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test/0_cleanup.py
-generate_script: &generate_script ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test/1_generate_data.py
-bronze_check: &bronze_check ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test/2_validate_bronze.py
-silver_check: &silver_check ${workspace.file_path}/platform_tests/append_delta_cross_catalog_test/3_validate_silver.py
+base: &base ${workspace.file_path}/platform_tests/append_table_cross_catalog_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/append_table_cross_catalog_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/append_table_cross_catalog_test/1_generate_data.py
+bronze_check: &bronze_check ${workspace.file_path}/platform_tests/append_table_cross_catalog_test/2_validate_bronze.py
+silver_check: &silver_check ${workspace.file_path}/platform_tests/append_table_cross_catalog_test/3_validate_silver.py
 
 catalog: &catalog ${var.platform_tests_catalog}
 
 # TODO: @Escoto - Create new source catalog for cross-catalog promotion)
 consumer_catalog: &consumer_catalog ${var.platform_tests_catalog}
-bronze_table: &bronze_table APPEND_DELTA_CROSS_CATALOG_BRONZE_1
-silver_table: &silver_table APPEND_DELTA_CROSS_CATALOG_SILVER_1
+bronze_table: &bronze_table APPEND_TABLE_CROSS_CATALOG_BRONZE_1
+silver_table: &silver_table APPEND_TABLE_CROSS_CATALOG_SILVER_1
 schema: &schema functional_testing
 
 shared_params: &shared_params
@@ -36,7 +36,7 @@ bronze_params: &bronze_params
   metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
   source.origin: csv
   source.path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/inbound/
-  source.directory: APPEND_DELTA_CROSS_CATALOG_SOURCE_1
+  source.directory: APPEND_TABLE_CROSS_CATALOG_SOURCE_1
   output.verb: append
   output.schema_name: *schema
   output.table: *bronze_table
@@ -45,7 +45,7 @@ silver_params: &silver_params
   <<: *shared_params
   catalog: *consumer_catalog
   metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
-  source.origin: delta
+  source.origin: table
   source.catalog: *catalog
   source.schema_name: *schema
   source.table: *bronze_table
@@ -61,12 +61,12 @@ identity: &identity
 
 resources:
   jobs:
-    append_delta_cross_catalog_test:
-      name: append_delta_cross_catalog_test
+    append_table_cross_catalog_test:
+      name: append_table_cross_catalog_test
       max_concurrent_runs: 1
 
       job_clusters:
-        - job_cluster_key: &cluster append_delta_cross_catalog_test_cluster
+        - job_cluster_key: &cluster append_table_cross_catalog_test_cluster
           new_cluster:
             spark_version: 15.4.x-scala2.12
             node_type_id: m7gd.large

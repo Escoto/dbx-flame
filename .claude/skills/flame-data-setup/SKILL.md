@@ -97,7 +97,7 @@ current one (`__CURRENT_FLAG = 'Y'`).
 
 **`complete_delta`**: history that replays every waiting export in order, one at a time,
 so every version appears.
-- Reads from a Bronze table (`source.origin: delta`).
+- Reads from a Bronze table (`source.origin: table`).
 - Optional deletes feed: a second Bronze table of deleted keys. Deleted records are
   flagged `__DELETED_FLAG = 'Y'` and closed; nothing is ever physically removed.
 - `output.snapshot_scope: full`: each export is the complete truth. A record missing
@@ -177,7 +177,7 @@ A task (Bronze shown; Silver only changes `named_parameters`):
       output.table: CLAIMS
 ```
 
-Silver `named_parameters` by pattern (each adds `source.origin: delta`,
+Silver `named_parameters` by pattern (each adds `source.origin: table`,
 `source.schema_name`, `source.table`, `output.schema_name` and `output.table`):
 
 | Pattern | Settings |
