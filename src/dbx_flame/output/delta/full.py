@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from pyspark.sql import functions as F
 
-from dbx_flame.context.config import Verb
+from dbx_flame.context.config import IncrementStrategy, Verb
 from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.mechanics import (
@@ -31,7 +31,10 @@ _SOURCE = "FullWriter"
 
 class FullWriter:
     verb: ClassVar[Verb] = Verb.FULL
-    requires: ClassVar[Requirements] = Requirements()
+    requires: ClassVar[Requirements] = Requirements(
+        # A full read is the current dataset by definition: exactly what FULL replaces with.
+        increment_strategies=(IncrementStrategy.CHECKPOINT, IncrementStrategy.FULL_READ),
+    )
 
     def write(self, df: DataFrame, ctx: Context) -> None:
         # Never wipe a table because an upstream export was missing or empty.

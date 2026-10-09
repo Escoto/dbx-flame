@@ -49,6 +49,36 @@ output.event_time.column: __EXPORT_DATE
 No code changes for either step — both are entries in a workflow YAML deployed through the
 bundle. See [03_write_verbs.md](docs/03_write_verbs.md) for the full verb matrix.
 
+## Usage Cheat-Sheet
+
+Which source, increment strategy (`source.increment_strategy`) and verb to combine for each
+step. ✅ recommended · ✔️ possible · ⚠️ valid, but read the note · ❌ rejected by the framework
+
+| Step | Source | Strategy | Verb | | Why |
+|---|---|---|---|---|---|
+| Inbound → Bronze | Files (csv, json) | `checkpoint` | APPEND | ✅ | Bronze keeps every export exactly as it arrived |
+| | | `checkpoint` | FULL · UPSERT · SCD2 | ✔️ | Bronze stops being the original record |
+| | | `watermark` · `full_read` | any | ❌ | Auto Loader only resumes from its checkpoint |
+| | | — | COMPLETE_DELTA | ❌ | Replays snapshots from a table, not files |
+| External table → Bronze | A table we didn't create (e.g. a federated one) | `full_read` | APPEND | ✅ | One complete snapshot per run, stamped with the read time |
+| | | `full_read` | FULL | ✔️ | Current state only: past reads are not kept |
+| | | `checkpoint` · `watermark` | any | ❌ | It carries no `__EXPORT_DATE` to follow (source-column watermark: gh #37) |
+| Bronze → Silver | A table we stamped | `checkpoint` | FULL | ✅ | The newest export is the current state |
+| | | `checkpoint` | UPSERT | ✅ | Latest version per key (SCD1); deletes stay |
+| | | `checkpoint` · `watermark` | SCD2 | ✅ | History of changes; deletes stay |
+| | | `watermark` | COMPLETE_DELTA | ✅ | Replays every export in order; a deletes feed retires keys |
+| | | `watermark` | COMPLETE_DELTA, `snapshot_scope: full` | ⚠️ | Retires keys an export omits. Only over complete exports: a partial one retires live rows (gh #36) |
+| | | `full_read` | any | ❌ | Would load every export it already holds again |
+| External table → Silver | A table we didn't create | `full_read` | UPSERT · SCD2 · COMPLETE_DELTA | ⚠️ | Skips Bronze, so no original record is kept. Prefer landing it in Bronze first |
+
+Two notes apply to every row:
+
+- **Keyed verbs detect change by `output.event_time.column`.** Point it at a real change date
+  from the source. With `__EXPORT_DATE`, every export or full read re-versions every
+  unchanged row in SCD2 and COMPLETE_DELTA, and rewrites it in UPSERT (gh #51).
+- **COMPLETE_DELTA with `snapshot_scope: full` re-versions every row of each snapshot**, changed
+  or not, so history grows by the table's size per export (gh #51).
+
 ## Key Capabilities
 
 - **Config-driven onboarding** — declare an origin, a write verb and a target; the framework
@@ -114,7 +144,7 @@ any data. Schema: [00_overview.md](docs/00_overview.md#glossary).
 
 ## Status
 
-Start, Pipeline (CSV + JSON + Delta), Typing, Policies (DQX), and all five write verbs are
+Start, Pipeline (CSV + JSON + table), Typing, Policies (DQX), and all five write verbs are
 implemented and tested. The SAS origin and the Gold example view are not implemented yet.
 Full phase-by-phase status:
 [06_roadmap.md](docs/06_roadmap.md).

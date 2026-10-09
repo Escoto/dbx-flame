@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
-from dbx_flame.context.config import Verb
+from dbx_flame.context.config import IncrementStrategy, Verb
 from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.mechanics import log_rows_written, merge_schema, require_creatable
@@ -20,7 +20,10 @@ _SOURCE = "AppendWriter"
 
 class AppendWriter:
     verb: ClassVar[Verb] = Verb.APPEND
-    requires: ClassVar[Requirements] = Requirements()
+    requires: ClassVar[Requirements] = Requirements(
+        # A full read lands each read of a foreign table in Bronze as one more snapshot.
+        increment_strategies=(IncrementStrategy.CHECKPOINT, IncrementStrategy.FULL_READ),
+    )
 
     def write(self, df: DataFrame, ctx: Context) -> None:
         require_creatable(df, ctx)

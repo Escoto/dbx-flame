@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, ClassVar, Protocol, runtime_checkable
 
-from dbx_flame.context.config import SchemaEvolution
+from dbx_flame.context.config import IncrementStrategy, SchemaEvolution
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame
 
     from dbx_flame.context.context import Context
 
+# Auto Loader tracks which files it has read in its checkpoint; there is no other way
+# to take only what is new from a folder.
+FILE_STRATEGIES = (IncrementStrategy.CHECKPOINT,)
+
 
 @runtime_checkable
 class SourcePipeline(Protocol):
     """Read from a configured origin and return a DataFrame (streaming or batch)."""
+
+    # Which increment strategies this origin can read with. Start accepts a strategy only
+    # when both the origin and the verb declare it.
+    increment_strategies: ClassVar[tuple[IncrementStrategy, ...]]
 
     def read(self, ctx: Context) -> DataFrame: ...
 

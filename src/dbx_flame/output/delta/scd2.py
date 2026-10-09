@@ -53,8 +53,13 @@ class Scd2Writer:
         # the whole table per load would make Silver a duplicate of Bronze; a
         # full-snapshot source belongs on FULL or COMPLETE_DELTA.
         # Checkpoint stays the default; watermark suits a source that carries a
-        # per-record date.
-        increment_strategies=(IncrementStrategy.CHECKPOINT, IncrementStrategy.WATERMARK),
+        # per-record date. A full read is safe to repeat: the anti-filter drops every
+        # row the target already holds at that event time, so only newer ones open a version.
+        increment_strategies=(
+            IncrementStrategy.CHECKPOINT,
+            IncrementStrategy.WATERMARK,
+            IncrementStrategy.FULL_READ,
+        ),
     )
 
     def write(self, df: DataFrame, ctx: Context) -> None:

@@ -53,15 +53,18 @@ class CompleteDeltaWriter:
         # snapshot replay needs a Delta updates table; file origins cannot feed it
         origins=frozenset({Origin.TABLE}),
         per_snapshot=True,
-        # Watermark only: replay has to see every snapshot, so a strategy that
-        # keeps just the newest one would defeat the purpose of the verb.
-        increment_strategies=(IncrementStrategy.WATERMARK,),
+        # Never checkpoint: replay has to see every snapshot, so a strategy that keeps
+        # just the newest one would defeat the purpose of the verb. A full read of a
+        # table we didn't create is one complete snapshot per run, so under
+        # snapshot_scope=full the keys it no longer carries are retired.
+        increment_strategies=(IncrementStrategy.WATERMARK, IncrementStrategy.FULL_READ),
     )
 
     def write(self, df: DataFrame, ctx: Context) -> None:
         # The deletes feed is read here rather than by the pipeline spine because only
         # this verb has one. Both reads cut at the same point: the watermark comes from
-        # the target, and nothing has been written to it yet.
+        # the target, and nothing has been written to it yet; a full read stamps both
+        # with the run's one read time, so they land in the same snapshot.
         deletes = TableSource().read_deletes(ctx)
         if deletes is not None:
             configured = ctx.config.output.deletes
