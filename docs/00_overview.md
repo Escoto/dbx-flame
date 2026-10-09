@@ -14,7 +14,7 @@ flowchart LR
         A[Task parameters] --> B[Validate & coerce] --> C[Context]
     end
     subgraph L2[2 · Pipeline]
-        D[Origin reader<br/>CSV · JSON · SAS · Delta] --> E[Pre-processors] --> F[Provenance + sanitize]
+        D[Origin reader<br/>CSV · JSON · SAS · Table] --> E[Pre-processors] --> F[Provenance + sanitize]
     end
     subgraph L3[3 · Typing]
         G[Cast table / columns]
@@ -44,7 +44,7 @@ flowchart LR
 | # | Layer | Package | Responsibility |
 |---|-------|---------|----------------|
 | 1 | **Start** | `dbx_flame.context` | Load flat task parameters, coerce & validate into a typed `TaskConfig` (pydantic), resolve names/paths, assemble the `Context` (config + Spark session + job/run identity + logger). |
-| 2 | **Pipeline** | `dbx_flame.pipelines` | Produce a DataFrame from the configured origin: CSV, JSON, SAS file (via Auto Loader) or Delta table. Apply named pre-processors, provenance columns, column-name sanitization. |
+| 2 | **Pipeline** | `dbx_flame.pipelines` | Produce a DataFrame from the configured origin: CSV, JSON, SAS file (via Auto Loader) or a Unity Catalog table. Apply named pre-processors, provenance columns, column-name sanitization. |
 | 3 | **Typing** | `dbx_flame.typecast` | Apply the casts the config declares — type plus optional date/timestamp format — and validate that none of them silently produced NULL. Columns the config does not name keep the type they arrived with. |
 | 4 | **Policies** | `dbx_flame.policies` | Gate the dataset on a [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset: `warn` is logged and passes, `error` refuses the batch. Results go to the audit log. |
 | 5 | **Output** | `dbx_flame.output` | Write the dataset with a verb: APPEND, FULL, UPSERT, SCD2, COMPLETE_DELTA — to Delta tables (implemented) or files (interface specified). |
@@ -74,7 +74,7 @@ Gold is SQL, not a verb. The framework's job ends at Silver.
 | **Snapshot scope** | `delta` (source sends only changes) or `full` (source sends the complete dataset each time, so records absent from a snapshot are expired — deletion by omission). |
 | **Deletes feed** | An optional secondary source (a Delta table) carrying delete records, merged as soft deletes. Available to COMPLETE_DELTA. |
 | **Watermark** | `max(__EXPORT_DATE)` already present in the target; an incremental read processes only source rows newer than it. |
-| **Silver metadata contract** | The framework-managed columns: `__FILEPATH`, `__BRONZE_LAST_MODIFIED_DT`, `__SILVER_LAST_MODIFIED_DT`, `__START_DATE`, `__END_DATE`, `__CURRENT_FLAG` (`Y`/`N`), `__DELETED_FLAG` (`Y`/`N`), `__EXPORT_DATE`, and `__ANCHOR_DT` when `source.anchor_dt` is set. |
+| **Silver metadata contract** | The framework-managed columns: `__SOURCE`, `__BRONZE_LAST_MODIFIED_DT`, `__SILVER_LAST_MODIFIED_DT`, `__START_DATE`, `__END_DATE`, `__CURRENT_FLAG` (`Y`/`N`), `__DELETED_FLAG` (`Y`/`N`), `__EXPORT_DATE`, and `__ANCHOR_DT` when `source.anchor_dt` is set. |
 | **Audit log contract** | Every run that passes config validation logs to `` `monitoring_{env}`.`audit`.`logs` `` with a fixed schema (`__uuid`, `__workflow_id`, `__workflow_run_id`, `__task_key`, `__task_run_id`, `time_stamp`, `type`, `catalog`, `schema`, `table`, `name`, `source`, `total`, `description`, `metadata`). KPI events use `source="KPI"`. A run that fails config validation stops before the logger exists: its `ConfigValidationError`, listing every invalid parameter, is only in the task's driver log and run output. |
 | **Medallion layers** | Inbound (raw files on a Volume) → Bronze (raw Delta) → Silver (typed, deduplicated, history-tracked) → Gold (materialized views over Silver, see [Gold](#gold)) → Export (files/outbound). |
 

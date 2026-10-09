@@ -227,6 +227,11 @@ keep an audit record of the erasure (not the data).
 Identities are service principals, never personal accounts. Deletes are soft. On Unity Catalog,
 read the source file from `_metadata.file_path` (`input_file_name()` is unsupported).
 
+In dbx-flame, provenance (`__SOURCE`, `__EXPORT_DATE`) is written once at ingestion and carried
+unchanged into Silver and Gold, so QA can trace any record to its exact source file and export.
+Table lineage only shows which table feeds which; never re-stamp provenance on promotion.
+See `docs/03_write_verbs.md` §0.
+
 ### 7.2 History Preservation (SCD Type 2)
 
 Patient-level records keep every version. A changed record needs two actions: close the current
