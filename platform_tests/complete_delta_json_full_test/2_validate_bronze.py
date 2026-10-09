@@ -65,8 +65,8 @@ assert full.filter(full["EXPORT_DATE"].isNull()).count() == 0, "EXPORT_DATE was 
 assert str(full.select("EXPORT_DATE").first()[0]) == FULL_EVENT
 assert str(delta.select("EXPORT_DATE").first()[0]) == DELTA_EVENT
 
-# Provenance survived the explode — COMPLETE_DELTA cuts its snapshots from __FILEPATH.
-assert full.filter(full["__FILEPATH"].isNull()).count() == 0, "__FILEPATH did not survive"
+# Provenance survived the explode: every record still traces to its file.
+assert full.filter(full["__SOURCE"].isNull()).count() == 0, "__SOURCE did not survive"
 assert full.filter(full["__EXPORT_DATE"].isNull()).count() == 0, "__EXPORT_DATE was not parsed"
 
 # A field no item in this feed carries is absent from every payload in it, and present

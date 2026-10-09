@@ -35,7 +35,7 @@ assert stamps == [export["stamp"] for export in expected], f"bronze exports: {st
 
 # Each export landed whole and unsplit: the pipe delimiter kept "Acme, Inc." in one column.
 for export in expected:
-    landed = df.filter(F.col("__FILEPATH").endswith(export["file"]))
+    landed = df.filter(F.col("__SOURCE").endswith(export["file"]))
     assert business_rows(landed) == set(export["rows"]), f"{export['file']} landed altered"
 
 print(f"round {round_number}: bronze validated")

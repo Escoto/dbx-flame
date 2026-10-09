@@ -54,7 +54,6 @@ silver_params: &silver_params
   source.schema_name: *schema
   source.table: *bronze_table
   policies.checks_file: *checks_file
-  # How to read the snapshot timestamp out of __FILEPATH: 14 digits, yyyyMMddHHmmss.
   output.verb: complete_delta
   output.schema_name: *schema
   output.table: *silver_table

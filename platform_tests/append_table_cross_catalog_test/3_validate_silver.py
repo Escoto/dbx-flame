@@ -17,6 +17,7 @@ from _shared import (  # noqa: E402
     SILVER_METADATA,
     bronze,
     expect_columns,
+    expect_file_provenance,
     expect_rows,
     silver,
 )
@@ -35,6 +36,9 @@ expect_rows(df, expected)
 # Every row came across exactly once.
 missing = spark.table(bronze()).exceptAll(df)
 assert missing.isEmpty(), f"rows in bronze never reached silver: {missing.collect()}"
+
+# Promotion never re-stamps provenance: each Silver row still names the file it came from.
+expect_file_provenance(df)
 
 checkpoint = f"{SILVER_METADATA}/_checkpoint"
 assert os.path.isdir(
