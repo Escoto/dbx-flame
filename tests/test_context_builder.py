@@ -585,9 +585,95 @@ def test_scd2_accepts_a_full_read_of_a_table():
     assert validate_requirements(_scd2(increment_strategy=IncrementStrategy.FULL_READ)) == []
 
 
-@pytest.mark.parametrize("strategy", [IncrementStrategy.WATERMARK, IncrementStrategy.FULL_READ])
+def test_every_verb_but_full_can_read_a_table_by_its_changes():
+    """FULL would replace the table with only the rows that changed."""
+    readers = {
+        verb
+        for verb, reqs in VERB_REQUIREMENTS.items()
+        if IncrementStrategy.DELTA_READ in reqs.increment_strategies
+    }
+
+    assert readers == set(Verb) - {Verb.FULL}
+
+
+def test_a_delta_read_is_never_a_verb_default():
+    for verb, reqs in VERB_REQUIREMENTS.items():
+        assert reqs.increment_strategy is not IncrementStrategy.DELTA_READ, verb
+
+
+def _delta_read(**source_overrides) -> TaskConfig:
+    source: dict[str, Any] = dict(
+        increment_strategy=IncrementStrategy.DELTA_READ,
+        anchor_dt=EventTimeConfig(column="MODIFIED_AT"),
+    )
+    source.update(source_overrides)
+    return _scd2(**source)
+
+
+def test_scd2_accepts_a_delta_read_of_a_table():
+    assert validate_requirements(_delta_read()) == []
+
+
+def test_a_delta_read_requires_the_column_it_follows():
+    errors = validate_requirements(_delta_read(anchor_dt=None))
+
+    assert errors == [
+        "source.increment_strategy=delta_read requires source.anchor_dt.column: "
+        "the source column that records when each row last changed"
+    ]
+
+
+def test_a_delta_read_refuses_a_string_column_to_parse():
+    """Parsing per row would keep the filter from reaching the source."""
+    config = _delta_read(anchor_dt=EventTimeConfig(column="MODIFIED_AT", format="yyyy-MM-dd"))
+
+    errors = validate_requirements(config)
+
+    assert errors == [
+        "source.anchor_dt.format does not apply to source.increment_strategy=delta_read: "
+        "the column must be a DATE or TIMESTAMP, so its filter reaches the source"
+    ]
+
+
+def _delta_read_complete_delta(scope: SnapshotScope, **source_overrides) -> TaskConfig:
+    output = _complete_delta_output().model_copy(update={"snapshot_scope": scope})
+    return _delta_read(**source_overrides).model_copy(update={"output": output})
+
+
+def test_a_delta_read_is_refused_under_full_scope():
+    """Every row the read did not carry would be retired."""
+    errors = validate_requirements(_delta_read_complete_delta(SnapshotScope.FULL))
+
+    assert errors == [
+        "source.increment_strategy=delta_read cannot be combined with "
+        "output.snapshot_scope=full: it reads only the rows that changed, so every "
+        "other one would be expired"
+    ]
+
+
+def test_a_delta_read_is_accepted_under_delta_scope():
+    assert validate_requirements(_delta_read_complete_delta(SnapshotScope.DELTA)) == []
+
+
+def test_a_delta_read_refuses_a_deletes_feed():
+    """The target's highest anchor says nothing about which deletes were applied."""
+    config = _delta_read_complete_delta(SnapshotScope.DELTA, deletes_table="T_DELETES")
+    config.output.deletes = DeletesConfig(keys=["ID"], event_time=EventTimeConfig(column="DT"))
+
+    errors = validate_requirements(config)
+
+    assert errors == [
+        "source.increment_strategy=delta_read does not read a deletes feed: land "
+        "source.deletes_table in Bronze with its own full_read task and apply it from there"
+    ]
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [IncrementStrategy.WATERMARK, IncrementStrategy.FULL_READ, IncrementStrategy.DELTA_READ],
+)
 def test_a_file_origin_refuses_a_strategy_it_cannot_read(strategy):
-    """SCD2 declares both, but Auto Loader can only resume from its checkpoint."""
+    """SCD2 declares them all, but Auto Loader can only resume from its checkpoint."""
     config = _scd2(origin=Origin.CSV, path="/v/", directory="d", increment_strategy=strategy)
 
     errors = validate_requirements(config)

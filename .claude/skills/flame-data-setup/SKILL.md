@@ -30,8 +30,11 @@ Provider files ──► Inbound volume ──► BRONZE ──► SILVER ──
   (`source.origin: table`, `source.increment_strategy: full_read`, `output.verb: append`):
   each read becomes one snapshot, stamped with the read time. Ask how big the table is
   and how often it may be read, since every run reads all of it from the source system.
-  For history in Silver, ask whether it has a real modification date: without one,
-  history re-versions every row on every read (see the README's Usage Cheat-Sheet).
+  Ask whether it has a real modification date (a DATE or TIMESTAMP column). With one, a
+  large table can be read by its changes instead (`source.increment_strategy: delta_read`,
+  `source.anchor_dt.column: <that column>`), but deletes and back-dated changes are then
+  invisible; without one, history re-versions every row on every read (see
+  `docs/08_usage.md`).
 
 ## 2. Ask these questions
 

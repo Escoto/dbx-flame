@@ -49,35 +49,21 @@ output.event_time.column: __EXPORT_DATE
 No code changes for either step — both are entries in a workflow YAML deployed through the
 bundle. See [03_write_verbs.md](docs/03_write_verbs.md) for the full verb matrix.
 
-## Usage Cheat-Sheet
+## Recommended Combinations
 
-Which source, increment strategy (`source.increment_strategy`) and verb to combine for each
-step. ✅ recommended · ✔️ possible · ⚠️ valid, but read the note · ❌ rejected by the framework
+The source, increment strategy (`source.increment_strategy`) and verb to use at each step.
+Every other combination, and the traps a valid config doesn't rule out, are in
+[08_usage.md](docs/08_usage.md).
 
-| Step | Source | Strategy | Verb | | Why |
-|---|---|---|---|---|---|
-| Inbound → Bronze | Files (csv, json) | `checkpoint` | APPEND | ✅ | Bronze keeps every export exactly as it arrived |
-| | | `checkpoint` | FULL · UPSERT · SCD2 | ✔️ | Bronze stops being the original record |
-| | | `watermark` · `full_read` | any | ❌ | Auto Loader only resumes from its checkpoint |
-| | | — | COMPLETE_DELTA | ❌ | Replays snapshots from a table, not files |
-| External table → Bronze | A table we didn't create (e.g. a federated one) | `full_read` | APPEND | ✅ | One complete snapshot per run, stamped with the read time |
-| | | `full_read` | FULL | ✔️ | Current state only: past reads are not kept |
-| | | `checkpoint` · `watermark` | any | ❌ | It carries no `__EXPORT_DATE` to follow (source-column watermark: gh #37) |
-| Bronze → Silver | A table we stamped | `checkpoint` | FULL | ✅ | The newest export is the current state |
-| | | `checkpoint` | UPSERT | ✅ | Latest version per key (SCD1); deletes stay |
-| | | `checkpoint` · `watermark` | SCD2 | ✅ | History of changes; deletes stay |
-| | | `watermark` | COMPLETE_DELTA | ✅ | Replays every export in order; a deletes feed retires keys |
-| | | `watermark` | COMPLETE_DELTA, `snapshot_scope: full` | ⚠️ | Retires keys an export omits. Only over complete exports: a partial one retires live rows (gh #36) |
-| | | `full_read` | any | ❌ | Would load every export it already holds again |
-| External table → Silver | A table we didn't create | `full_read` | UPSERT · SCD2 · COMPLETE_DELTA | ⚠️ | Skips Bronze, so no original record is kept. Prefer landing it in Bronze first |
-
-Two notes apply to every row:
-
-- **Keyed verbs detect change by `output.event_time.column`.** Point it at a real change date
-  from the source. With `__EXPORT_DATE`, every export or full read re-versions every
-  unchanged row in SCD2 and COMPLETE_DELTA, and rewrites it in UPSERT (gh #51).
-- **COMPLETE_DELTA with `snapshot_scope: full` re-versions every row of each snapshot**, changed
-  or not, so history grows by the table's size per export (gh #51).
+| Step | Source | Strategy | Verb | Why |
+|---|---|---|---|---|
+| Inbound → Bronze | Files (csv, json) | `checkpoint` | APPEND | Bronze keeps every export exactly as it arrived |
+| External table → Bronze | A table we didn't create (e.g. a federated one) | `full_read` | APPEND | One complete snapshot per run. Sees deletes |
+| | | `delta_read` | APPEND | Only the rows changed since the last run, for a table too large to read whole. Deletes are invisible |
+| Bronze → Silver | A table we stamped | `checkpoint` | FULL | The newest export is the current state |
+| | | `checkpoint` | UPSERT | Latest version per key (SCD1) |
+| | | `checkpoint` · `watermark` | SCD2 | History of changes |
+| | | `watermark` | COMPLETE_DELTA, `snapshot_scope: delta` | Replays every export in order; a deletes feed retires keys |
 
 ## Key Capabilities
 
@@ -105,6 +91,7 @@ Two notes apply to every row:
 6. [05_testing.md](docs/05_testing.md) — unit and platform testing
 7. [06_roadmap.md](docs/06_roadmap.md) — phased implementation plan and current status
 8. [07_workspace_setup.md](docs/07_workspace_setup.md) — workspace setup recipe: catalog naming, schemas, volumes, grants
+9. [08_usage.md](docs/08_usage.md) — which source, strategy and verb to combine, and the traps
 
 ## Development
 

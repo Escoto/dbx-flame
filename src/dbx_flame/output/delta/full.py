@@ -33,6 +33,7 @@ class FullWriter:
     verb: ClassVar[Verb] = Verb.FULL
     requires: ClassVar[Requirements] = Requirements(
         # A full read is the current dataset by definition: exactly what FULL replaces with.
+        # A delta read is not: FULL would replace the table with only the rows that changed.
         increment_strategies=(IncrementStrategy.CHECKPOINT, IncrementStrategy.FULL_READ),
     )
 

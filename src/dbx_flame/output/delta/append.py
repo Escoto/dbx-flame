@@ -21,8 +21,13 @@ _SOURCE = "AppendWriter"
 class AppendWriter:
     verb: ClassVar[Verb] = Verb.APPEND
     requires: ClassVar[Requirements] = Requirements(
-        # A full read lands each read of a foreign table in Bronze as one more snapshot.
-        increment_strategies=(IncrementStrategy.CHECKPOINT, IncrementStrategy.FULL_READ),
+        # A full read lands each read of a foreign table in Bronze as one more snapshot;
+        # a delta read, as the rows it changed since the last.
+        increment_strategies=(
+            IncrementStrategy.CHECKPOINT,
+            IncrementStrategy.FULL_READ,
+            IncrementStrategy.DELTA_READ,
+        ),
     )
 
     def write(self, df: DataFrame, ctx: Context) -> None:

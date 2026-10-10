@@ -68,7 +68,8 @@ source.catalog: raw                    # optional; the source's catalog, as {cat
 source.schema_name: bronze_main          # schema of the source table
 source.table: SUBJECTS_UPDATES          # source table
 source.deletes_table: SUBJECTS_DELETES  # optional deletes feed
-source.increment_strategy: full_read   # optional: checkpoint | watermark | full_read; unset → the verb's default
+source.increment_strategy: delta_read  # optional: checkpoint | watermark | full_read | delta_read; unset → the verb's default
+source.anchor_dt.column: MODIFIED_AT   # delta_read only: the DATE or TIMESTAMP column it follows
 source.increment_anchor: false         # bool; watermark on __ANCHOR_DT instead of __EXPORT_DATE
 
 schema_evolution: fail_on_new_columns    # what happens when a new column shows up:
@@ -112,23 +113,28 @@ Notes:
 - Each verb declares the increment strategies it supports and its default (`checkpoint` for
   append/full/upsert/scd2, `watermark` for complete_delta), and each origin declares the ones
   it can read with: file origins only `checkpoint` (Auto Loader resumes from nothing else), a
-  table `checkpoint`, `watermark` and `full_read`. `source.increment_strategy` picks another
+  table `checkpoint`, `watermark`, `full_read` and `delta_read`. `source.increment_strategy` picks another
   only where both the verb and the origin allow it; any other choice is rejected at Start.
   The Start layer resolves the result onto the `Context`.
-- `source.increment_strategy: full_read` reads the whole source table as one batch on every
-  run, with no checkpoint. It is for a table we didn't create (a federated one, say), which
-  has no stream to resume and no `__EXPORT_DATE` to follow, and every verb accepts it. Each
-  read lands as one snapshot: `__EXPORT_DATE` and `__BRONZE_LAST_MODIFIED_DT` are the run's
-  read time, taken once, and `__SOURCE` is `TABLE:<catalog>.<schema>.<table>@<read time>`. A
-  deletes table read in the same run shares that stamp, so both land in one snapshot. Every
-  run reads the whole table from the source system, so mind its size and the load on it.
-  Land it in Bronze with APPEND, one snapshot per run, and promote from there.
+- `full_read` and `delta_read` are for a table we didn't create (a federated one, say),
+  which has no stream to resume and no `__EXPORT_DATE` to follow. Each read is stamped once:
+  `__EXPORT_DATE` and `__BRONZE_LAST_MODIFIED_DT` are the run's read time, and `__SOURCE`
+  is `TABLE:<catalog>.<schema>.<table>@<read time>`. Which to choose, and their limits:
+  [08_usage.md](08_usage.md) §3.
+  - `full_read` reads the whole table as one batch, and every verb accepts it. A deletes
+    table read in the same run shares its stamp, so both land in one snapshot.
+  - `delta_read` reads only the rows whose `source.anchor_dt.column` is later than the
+    target's highest `__ANCHOR_DT`, and copies the column into `__ANCHOR_DT` for the next
+    run. The column is named as the source has it (any case) and must be a DATE, TIMESTAMP
+    or TIMESTAMP_NTZ, compared as it is so the filter reaches the source; `format` is
+    rejected. FULL refuses it, and Start rejects it with `output.snapshot_scope: full` or
+    a deletes table.
 - Whether a table is ours is decided by its columns, `__SOURCE` and `__EXPORT_DATE`, before
   anything is read. A violation fails the run as a [platform policy](04_policies.md#9-platform-policies):
 
-  | The source table carries | `checkpoint` · `watermark` | `full_read` |
+  | The source table carries | `checkpoint` · `watermark` | `full_read` · `delta_read` |
   |---|---|---|
-  | both (a table we stamped) | read as is; provenance travels unchanged | `stamped_full_read`: it would load every export it holds again |
+  | both (a table we stamped) | read as is; provenance travels unchanged | `stamped_table`: it would stamp the exports it holds again |
   | neither (a table we didn't create) | `unstamped_table`: an increment can't be stamped as a snapshot | stamped with the read time |
   | only one | `malformed_table` (incomplete metadata) | `malformed_table` |
 - `source.snapshot_time_pattern` is the export stamp agreed with the source, and Bronze
@@ -139,7 +145,8 @@ Notes:
 - `source.anchor_dt` names a per-record date, typically a modification date. The Bronze
   task copies it, after typing, into `__ANCHOR_DT` as a timestamp, leaving the original
   untouched. A value that doesn't parse fails the batch; a NULL is logged
-  (`anchor_missing`) and passes. File origins only.
+  (`anchor_missing`) and passes. File origins, and the table origin under `delta_read`
+  (above), where it is copied at the read.
 - `source.increment_anchor: true` makes the watermark compare `__ANCHOR_DT` in place of
   `__EXPORT_DATE`: only rows whose anchor is later than the target's highest are read, so
   a delta feed applies only the changes made after what Silver already holds. Because
@@ -148,8 +155,7 @@ Notes:
   carry `__ANCHOR_DT`, so **every Bronze feeding an anchored Silver sets
   `source.anchor_dt`**, the full feed included; a missing column fails the run. It
   requires `source.increment_strategy: watermark`, and is rejected with
-  `output.snapshot_scope: full`: the anchor returns only the records that moved, and
-  full scope would expire every record the export still carries unchanged.
+  `output.snapshot_scope: full`, which would expire every record that didn't move.
 - Dedup is **on by default** for keyed verbs (upsert/scd2/complete_delta): the latest row per
   `output.keys`, ordered by `output.event_time`, ties broken by the newer `__EXPORT_DATE`.
   An upsert without `output.event_time` must set `output.dedup.order_by` or

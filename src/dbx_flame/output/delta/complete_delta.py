@@ -56,8 +56,13 @@ class CompleteDeltaWriter:
         # Never checkpoint: replay has to see every snapshot, so a strategy that keeps
         # just the newest one would defeat the purpose of the verb. A full read of a
         # table we didn't create is one complete snapshot per run, so under
-        # snapshot_scope=full the keys it no longer carries are retired.
-        increment_strategies=(IncrementStrategy.WATERMARK, IncrementStrategy.FULL_READ),
+        # snapshot_scope=full the keys it no longer carries are retired. A delta read is
+        # only the changed rows, so Start allows it under snapshot_scope=delta alone.
+        increment_strategies=(
+            IncrementStrategy.WATERMARK,
+            IncrementStrategy.FULL_READ,
+            IncrementStrategy.DELTA_READ,
+        ),
     )
 
     def write(self, df: DataFrame, ctx: Context) -> None:

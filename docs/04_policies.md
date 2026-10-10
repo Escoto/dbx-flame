@@ -185,14 +185,15 @@ The platform policies, named as the audit row a violation writes:
 | `unstamped_file` | a file name doesn't carry the agreed export stamp |
 | `anchor_column_missing` | `source.anchor_dt.column` isn't in the batch |
 | `anchor_unparseable` | a `source.anchor_dt` value doesn't parse as a timestamp |
-| `anchor_not_stamped` | an anchored read meets a table without `__ANCHOR_DT` |
+| `anchor_not_stamped` | an anchored read or a `delta_read` meets a table without `__ANCHOR_DT` |
+| `anchor_wrong_type` | the column a `delta_read` follows isn't a DATE, TIMESTAMP or TIMESTAMP_NTZ |
 | `cast_silent_null` | a cast turns a present value into NULL |
 | `empty_source_schema` | a new target would be created from a batch with no columns |
 | `unexpected_columns` | a batch carries a new column and `schema_evolution` doesn't add it |
 | `event_time_invalid` | a date a keyed verb compares is missing, blank or doesn't parse |
 | `malformed_table` | a source table carries one of `__SOURCE` and `__EXPORT_DATE` but not the other |
-| `unstamped_table` | a checkpoint or watermark read meets a table with neither: only `full_read` may stamp one |
-| `stamped_full_read` | a `full_read` meets a table we stamped, whose exports it would load again |
+| `unstamped_table` | a checkpoint or watermark read meets a table with neither: only `full_read` or `delta_read` may stamp one |
+| `stamped_table` | a `full_read` or `delta_read` meets a table we stamped, whose exports it would stamp again |
 
 The last three run on the table origin's read, before anything is read from it, and apply
 to its deletes table too ([02_config_schema.md](02_config_schema.md) has the full rule).
@@ -205,7 +206,7 @@ skip an update or let dedup keep an arbitrary row.
 Each check runs where its data is first available. For a batch, the order is:
 
 ```
-read (malformed_table · unstamped_table · stamped_full_read) → unstamped_file → prepare()
+read (malformed_table · unstamped_table · stamped_table · anchor_*) → unstamped_file → prepare()
   → event_time_invalid → dedup → user policies (DQX) → writer
 ```
 

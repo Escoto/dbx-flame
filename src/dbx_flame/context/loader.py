@@ -56,7 +56,7 @@ def _unflatten(params: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
                 if not isinstance(current[part], dict):
                     path = ".".join(parts[: i + 1])
                     errors.append(
-                        f"Key conflict: '{path}' is used as both a value" " and a namespace."
+                        f"Key conflict: '{path}' is used as both a value and a namespace."
                     )
                     conflict = True
                     break
@@ -67,7 +67,7 @@ def _unflatten(params: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
         if not conflict:
             leaf = parts[-1]
             if leaf in current and isinstance(current[leaf], dict):
-                errors.append(f"Key conflict: '{key}' is used as both a value" " and a namespace.")
+                errors.append(f"Key conflict: '{key}' is used as both a value and a namespace.")
             else:
                 current[leaf] = value
     return result, errors
@@ -214,6 +214,9 @@ def _increment_errors(config: TaskConfig, reqs: Requirements, verb: str) -> list
             f"{strategy.value} (supported: {supported})"
         ]
 
+    if strategy == IncrementStrategy.DELTA_READ:
+        errors.extend(_delta_read_errors(config))
+
     if config.source.increment_anchor and strategy != IncrementStrategy.WATERMARK:
         errors.append(
             "source.increment_anchor only applies to source.increment_strategy=watermark, "
@@ -226,6 +229,40 @@ def _increment_errors(config: TaskConfig, reqs: Requirements, verb: str) -> list
         errors.append(
             "source.increment_anchor cannot be combined with output.snapshot_scope=full: "
             "a full export must be read whole, or the records it still carries are expired"
+        )
+
+    return errors
+
+
+def _delta_read_errors(config: TaskConfig) -> list[str]:
+    """A delta_read hands on only the rows that changed, found through one typed column."""
+    errors: list[str] = []
+    anchor = config.source.anchor_dt
+
+    if anchor is None:
+        errors.append(
+            "source.increment_strategy=delta_read requires source.anchor_dt.column: "
+            "the source column that records when each row last changed"
+        )
+    elif anchor.format:
+        # Parsing a string per row would keep the filter from reaching the source.
+        errors.append(
+            "source.anchor_dt.format does not apply to source.increment_strategy=delta_read: "
+            "the column must be a DATE or TIMESTAMP, so its filter reaches the source"
+        )
+
+    if config.output.snapshot_scope == SnapshotScope.FULL:
+        errors.append(
+            "source.increment_strategy=delta_read cannot be combined with "
+            "output.snapshot_scope=full: it reads only the rows that changed, so every "
+            "other one would be expired"
+        )
+
+    if config.source.deletes_table:
+        # The target's highest anchor says nothing about which deletes were applied.
+        errors.append(
+            "source.increment_strategy=delta_read does not read a deletes feed: land "
+            "source.deletes_table in Bronze with its own full_read task and apply it from there"
         )
 
     return errors

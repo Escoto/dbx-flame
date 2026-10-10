@@ -34,8 +34,13 @@ class UpsertWriter:
     requires: ClassVar[Requirements] = Requirements(
         keys=True,
         # Re-reading every key each run is safe: newer wins, and an unchanged row is a
-        # no-op. A key removed at the source stays, as with any upsert.
-        increment_strategies=(IncrementStrategy.CHECKPOINT, IncrementStrategy.FULL_READ),
+        # no-op. A key removed at the source stays, as with any upsert. A delta read
+        # hands it only the keys that changed, which is all an upsert needs.
+        increment_strategies=(
+            IncrementStrategy.CHECKPOINT,
+            IncrementStrategy.FULL_READ,
+            IncrementStrategy.DELTA_READ,
+        ),
     )
 
     def write(self, df: DataFrame, ctx: Context) -> None:
