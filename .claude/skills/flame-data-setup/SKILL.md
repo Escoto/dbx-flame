@@ -33,8 +33,8 @@ Provider files ──► Inbound volume ──► BRONZE ──► SILVER ──
   Ask whether it has a real modification date (a DATE or TIMESTAMP column). With one, a
   large table can be read by its changes instead (`source.increment_strategy: delta_read`,
   `source.anchor_dt.column: <that column>`), but deletes and back-dated changes are then
-  invisible; without one, history re-versions every row on every read (see the README's
-  Usage Cheat-Sheet).
+  invisible; without one, history re-versions every row on every read (see
+  `docs/08_usage.md`).
 
 ## 2. Ask these questions
 

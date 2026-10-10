@@ -91,3 +91,4 @@ Gold is SQL, not a verb. The framework's job ends at Silver.
 | [05_testing.md](05_testing.md) | Unit and platform testing strategy |
 | [06_roadmap.md](06_roadmap.md) | Phased implementation plan and current status |
 | [07_workspace_setup.md](07_workspace_setup.md) | Catalogs, schemas, volumes and grants a workspace needs, as a recipe |
+| [08_usage.md](08_usage.md) | Which source, increment strategy and verb to combine at each step, and the traps |

@@ -116,35 +116,19 @@ Notes:
   table `checkpoint`, `watermark`, `full_read` and `delta_read`. `source.increment_strategy` picks another
   only where both the verb and the origin allow it; any other choice is rejected at Start.
   The Start layer resolves the result onto the `Context`.
-- `source.increment_strategy: full_read` reads the whole source table as one batch on every
-  run, with no checkpoint. It is for a table we didn't create (a federated one, say), which
-  has no stream to resume and no `__EXPORT_DATE` to follow, and every verb accepts it. Each
-  read lands as one snapshot: `__EXPORT_DATE` and `__BRONZE_LAST_MODIFIED_DT` are the run's
-  read time, taken once, and `__SOURCE` is `TABLE:<catalog>.<schema>.<table>@<read time>`. A
-  deletes table read in the same run shares that stamp, so both land in one snapshot. Every
-  run reads the whole table from the source system, so mind its size and the load on it.
-  Land it in Bronze with APPEND, one snapshot per run, and promote from there.
-- `source.increment_strategy: delta_read` reads only the rows of a table we didn't create
-  that changed since the last run. It follows the source column named by
-  `source.anchor_dt.column`, a DATE, TIMESTAMP or TIMESTAMP_NTZ recording when each row last
-  changed: a run reads the rows whose column is later than the target's highest
-  `__ANCHOR_DT`, and copies the column into `__ANCHOR_DT` for the next run. The column is
-  named as the source has it (any case), and compared as it is, so the filter reaches the
-  source and a large table isn't read whole each time; `source.anchor_dt.format` is
-  rejected. Each read is stamped like a full read, but is never a complete snapshot. Its
-  limits:
-  - deletes at the source are invisible;
-  - a row that lands later with a change time at or below the watermark is missed (late or
-    back-dated updates). A DATE column makes this a whole day: a row changed later on the
-    last day read is never picked up;
-  - a row with a NULL change time is never read.
-
-  APPEND, UPSERT, SCD2 and COMPLETE_DELTA accept it; FULL doesn't, since it would replace
-  the target with only the changed rows. Rejected at Start with `output.snapshot_scope:
-  full`, which would retire every row the read didn't carry, and with a deletes table: land
-  the deletes feed in Bronze with its own `full_read` task and apply it from there. The
-  target must carry `__ANCHOR_DT` (`anchor_not_stamped`), and the column must exist
-  (`anchor_column_missing`) with a date type (`anchor_wrong_type`).
+- `full_read` and `delta_read` are for a table we didn't create (a federated one, say),
+  which has no stream to resume and no `__EXPORT_DATE` to follow. Each read is stamped once:
+  `__EXPORT_DATE` and `__BRONZE_LAST_MODIFIED_DT` are the run's read time, and `__SOURCE`
+  is `TABLE:<catalog>.<schema>.<table>@<read time>`. Which to choose, and their limits:
+  [08_usage.md](08_usage.md) §3.
+  - `full_read` reads the whole table as one batch, and every verb accepts it. A deletes
+    table read in the same run shares its stamp, so both land in one snapshot.
+  - `delta_read` reads only the rows whose `source.anchor_dt.column` is later than the
+    target's highest `__ANCHOR_DT`, and copies the column into `__ANCHOR_DT` for the next
+    run. The column is named as the source has it (any case) and must be a DATE, TIMESTAMP
+    or TIMESTAMP_NTZ, compared as it is so the filter reaches the source; `format` is
+    rejected. FULL refuses it, and Start rejects it with `output.snapshot_scope: full` or
+    a deletes table.
 - Whether a table is ours is decided by its columns, `__SOURCE` and `__EXPORT_DATE`, before
   anything is read. A violation fails the run as a [platform policy](04_policies.md#9-platform-policies):
 
@@ -171,8 +155,7 @@ Notes:
   carry `__ANCHOR_DT`, so **every Bronze feeding an anchored Silver sets
   `source.anchor_dt`**, the full feed included; a missing column fails the run. It
   requires `source.increment_strategy: watermark`, and is rejected with
-  `output.snapshot_scope: full`: the anchor returns only the records that moved, and
-  full scope would expire every record the export still carries unchanged.
+  `output.snapshot_scope: full`, which would expire every record that didn't move.
 - Dedup is **on by default** for keyed verbs (upsert/scd2/complete_delta): the latest row per
   `output.keys`, ordered by `output.event_time`, ties broken by the newer `__EXPORT_DATE`.
   An upsert without `output.event_time` must set `output.dedup.order_by` or
