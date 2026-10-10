@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from delta.tables import DeltaTable
 
-from dbx_flame.context.config import Verb
+from dbx_flame.context.config import IncrementStrategy, Verb
 from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.mechanics import (
@@ -31,7 +31,12 @@ _EVENT = Kpi.ROWS_UPSERTED
 
 class UpsertWriter:
     verb: ClassVar[Verb] = Verb.UPSERT
-    requires: ClassVar[Requirements] = Requirements(keys=True)
+    requires: ClassVar[Requirements] = Requirements(
+        keys=True,
+        # Re-reading every key each run is safe: newer wins, and an unchanged row is a
+        # no-op. A key removed at the source stays, as with any upsert.
+        increment_strategies=(IncrementStrategy.CHECKPOINT, IncrementStrategy.FULL_READ),
+    )
 
     def write(self, df: DataFrame, ctx: Context) -> None:
         prepared = promote(df)

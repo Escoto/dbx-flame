@@ -12,6 +12,8 @@ from dbx_flame.context.config import SnapshotTimePattern
 from dbx_flame.policies.platform import PlatformPolicy, violate
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from pyspark.sql import Column, DataFrame
 
     from dbx_flame.context.context import Context
@@ -36,6 +38,14 @@ ANCHOR_DT = "__ANCHOR_DT"
 # ingestion and never overwritten, so every Silver and Gold row traces to its origin.
 SOURCE = "__SOURCE"
 _FILE_PREFIX = "FILE:"
+_TABLE_PREFIX = "TABLE:"
+
+EXPORT_DATE = "__EXPORT_DATE"
+_BRONZE_TIMESTAMP = "__BRONZE_LAST_MODIFIED_DT"
+
+# A table we stamped carries both; one we didn't create carries neither. Not the Bronze
+# timestamp: promotion drops it, so a Silver read as a source has it no longer.
+PROVENANCE_MARKERS = (SOURCE, EXPORT_DATE)
 
 # Auto Loader's catch-all for values that did not fit the inferred schema.
 _RESCUED_COLUMN = "_rescued_data"
@@ -64,7 +74,20 @@ def add_provenance(df: DataFrame, ctx: Context) -> DataFrame:
     return (
         df.withColumn("__bronze_last_modified_dt", F.current_timestamp())
         .withColumn(SOURCE, F.concat(F.lit(_FILE_PREFIX), file_path))
-        .withColumn("__EXPORT_DATE", _export_date(file_path, pattern))
+        .withColumn(EXPORT_DATE, _export_date(file_path, pattern))
+    )
+
+
+def stamp_full_read(df: DataFrame, table: str, read_time: datetime) -> DataFrame:
+    """Provenance for a full read of a table we didn't create: one snapshot, one stamp.
+
+    The read time is the snapshot's export date: the moment the table looked like this.
+    """
+    name = table.replace("`", "")
+    return (
+        df.withColumn(_BRONZE_TIMESTAMP, F.lit(read_time))
+        .withColumn(SOURCE, F.lit(f"{_TABLE_PREFIX}{name}@{read_time.isoformat()}"))
+        .withColumn(EXPORT_DATE, F.lit(read_time))
     )
 
 
@@ -74,7 +97,7 @@ def reject_unstamped(df: DataFrame, ctx: Context) -> None:
     The file is refused rather than loaded without an __EXPORT_DATE: every watermark
     would skip it silently, and Bronze would need cleaning by hand.
     """
-    unstamped = df.filter(F.col("__EXPORT_DATE").isNull()).select(SOURCE).first()
+    unstamped = df.filter(F.col(EXPORT_DATE).isNull()).select(SOURCE).first()
     if unstamped is None:
         return
 

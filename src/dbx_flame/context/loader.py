@@ -13,6 +13,7 @@ from dbx_flame.context.context import Context, RunIdentity
 from dbx_flame.observability.audit_logger import AuditLogger
 from dbx_flame.output.registry import VERB_REQUIREMENTS
 from dbx_flame.pipelines.preprocessors import PREPROCESSORS, RecordEnvelope
+from dbx_flame.pipelines.registry import SOURCES
 from dbx_flame.policies.checks import ChecksValidationError, load_checks
 
 if TYPE_CHECKING:
@@ -201,6 +202,17 @@ def _increment_errors(config: TaskConfig, reqs: Requirements, verb: str) -> list
         ]
 
     strategy = chosen or reqs.increment_strategy
+
+    origin = config.source.origin
+    readable = SOURCES[origin].increment_strategies
+    # An origin the verb refuses is already reported; naming its strategy too would
+    # only repeat the same mistake.
+    if origin in reqs.origins and strategy not in readable:
+        supported = ", ".join(s.value for s in readable)
+        return [
+            f"source.origin={origin.value} does not support source.increment_strategy="
+            f"{strategy.value} (supported: {supported})"
+        ]
 
     if config.source.increment_anchor and strategy != IncrementStrategy.WATERMARK:
         errors.append(

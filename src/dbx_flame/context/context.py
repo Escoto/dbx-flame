@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
@@ -44,3 +45,8 @@ class Context:
     # The DQX ruleset, read and validated at Start. It rides on the Context because the
     # runner executes inside foreachBatch, where DQX cannot reach a workspace to load it.
     checks: list[dict[str, Any]] = field(default_factory=list)
+
+    # When a full read stamps a table we didn't create. Taken once per run, so the updates
+    # and deletes reads share one snapshot, and every action re-evaluating a frame gets the
+    # same value, which current_timestamp() would not guarantee.
+    read_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

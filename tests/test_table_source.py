@@ -1,4 +1,4 @@
-"""Tests for pipelines.table_source — checkpoint and watermark increments."""
+"""Tests for pipelines.table_source — checkpoint, watermark and full-read increments."""
 
 from __future__ import annotations
 
@@ -28,7 +28,12 @@ RUN = RunIdentity(
     task_run_id="taskrun-1",
 )
 
-SCHEMA = "ID string, __EXPORT_DATE timestamp"
+SCHEMA = "ID string, __SOURCE string, __EXPORT_DATE timestamp"
+
+# Provenance a Bronze we stamped carries; its value is irrelevant to every read here.
+_FILE = "FILE:/Volumes/in/updates/UPDATES_20240101000000.csv"
+
+READ_TIME = datetime(2026, 10, 9, 12, 0)
 
 
 @pytest.fixture
@@ -39,8 +44,20 @@ def database(spark):
     spark.sql(f"DROP DATABASE IF EXISTS `{name}` CASCADE")
 
 
+def _with_source(rows):
+    """__SOURCE sits just before __EXPORT_DATE, the last column of every stamped schema."""
+    return [row[:-1] + (_FILE,) + row[-1:] for row in rows]
+
+
 def _write(spark, database, table, rows):
-    spark.createDataFrame(rows, SCHEMA).write.format("delta").mode("overwrite").saveAsTable(
+    spark.createDataFrame(_with_source(rows), SCHEMA).write.format("delta").mode(
+        "overwrite"
+    ).saveAsTable(f"`{database}`.`{table}`")
+
+
+def _foreign(spark, database, table, rows, schema="ID string, NAME string"):
+    """A table we didn't create: none of our metadata columns."""
+    spark.createDataFrame(rows, schema).write.format("delta").mode("overwrite").saveAsTable(
         f"`{database}`.`{table}`"
     )
 
@@ -69,6 +86,7 @@ def _context(spark, database, strategy, *, deletes=None, **source_overrides):
         checkpoint_location="/tmp/checkpoint/",
         schema_hints_location="/tmp/hints/",
         increment_strategy=IncrementStrategy(strategy),
+        read_time=READ_TIME,
     )
 
 
@@ -232,11 +250,11 @@ def test_a_delete_on_the_source_does_not_break_the_stream(spark, database, tmp_p
     assert spark.read.format("delta").load(sink).count() == 2
 
 
-SNAPSHOT_SCHEMA = "ID string, __ANCHOR_DT timestamp, __EXPORT_DATE timestamp"
+SNAPSHOT_SCHEMA = "ID string, __ANCHOR_DT timestamp, __SOURCE string, __EXPORT_DATE timestamp"
 
 
 def _snapshot(spark, database, table, rows, mode="append", schema=SNAPSHOT_SCHEMA):
-    spark.createDataFrame(rows, schema).write.format("delta").mode(mode).saveAsTable(
+    spark.createDataFrame(_with_source(rows), schema).write.format("delta").mode(mode).saveAsTable(
         f"`{database}`.`{table}`"
     )
 
@@ -304,3 +322,109 @@ def test_the_resolved_anchor_is_named_in_the_log(spark, database):
     TableSource().read(ctx)
 
     assert "__ANCHOR_DT" in ctx.logger.info.call_args.kwargs["description"]
+
+
+# --- full read -------------------------------------------------------------------
+
+
+def test_a_full_read_returns_the_whole_table_as_one_batch(spark, database):
+    _foreign(spark, database, "UPDATES", [("1", "alice"), ("2", "bob")])
+    ctx = _context(spark, database, IncrementStrategy.FULL_READ)
+
+    result = TableSource().read(ctx)
+
+    assert not result.isStreaming
+    assert sorted(row["ID"] for row in result.collect()) == ["1", "2"]
+
+
+def test_a_full_read_stamps_every_row_as_one_snapshot_taken_at_the_read_time(spark, database):
+    _foreign(spark, database, "UPDATES", [("1", "alice"), ("2", "bob")])
+    ctx = _context(spark, database, IncrementStrategy.FULL_READ)
+
+    rows = TableSource().read(ctx).collect()
+
+    for row in rows:
+        assert row["__EXPORT_DATE"] == READ_TIME
+        assert row["__BRONZE_LAST_MODIFIED_DT"] == READ_TIME
+        assert row["__SOURCE"] == f"TABLE:{database}.UPDATES@{READ_TIME.isoformat()}"
+
+
+def test_a_full_read_logs_that_it_stamped_the_table(spark, database):
+    _foreign(spark, database, "UPDATES", [("1", "alice")])
+    ctx = _context(spark, database, IncrementStrategy.FULL_READ)
+
+    TableSource().read(ctx)
+
+    logged = ctx.logger.info.call_args.kwargs
+    assert logged["name"] == "table_stamped"
+    assert READ_TIME.isoformat() in logged["description"]
+
+
+def test_updates_and_deletes_read_in_full_share_one_snapshot(spark, database):
+    """Two stamps would split one read into two snapshots, the deletes replayed apart."""
+    _foreign(spark, database, "UPDATES", [("1", "alice")])
+    _foreign(spark, database, "DELETES", [("9", "gone")])
+    ctx = _context(spark, database, IncrementStrategy.FULL_READ, deletes="DELETES")
+    source = TableSource()
+
+    updates = source.read(ctx).select("__EXPORT_DATE").first()[0]
+    deletes = source.read_deletes(ctx).select("__EXPORT_DATE").first()[0]
+
+    assert updates == deletes == READ_TIME
+
+
+def test_a_full_read_refuses_a_table_we_already_stamped(spark, database):
+    """Our own Bronze holds its exports: re-reading them appends or replays them twice."""
+    _write(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))])
+    ctx = _context(spark, database, IncrementStrategy.FULL_READ)
+
+    with pytest.raises(PlatformPolicyViolation, match="stamped_full_read: .* already carries"):
+        TableSource().read(ctx)
+    assert ctx.logger.error.call_args.kwargs["name"] == "stamped_full_read"
+
+
+@pytest.mark.parametrize("strategy", [IncrementStrategy.CHECKPOINT, IncrementStrategy.WATERMARK])
+def test_only_a_full_read_may_read_a_table_we_did_not_create(spark, database, strategy):
+    """Stamping an increment would pass it off as a whole snapshot, one per micro-batch.
+
+    FULL would then keep the last micro-batch and drop the rest, so nothing but a full
+    read ever stamps a table.
+    """
+    _foreign(spark, database, "UPDATES", [("1", "alice")])
+    ctx = _context(spark, database, strategy)
+
+    with pytest.raises(
+        PlatformPolicyViolation, match="unstamped_table: .*increment_strategy=full_read"
+    ):
+        TableSource().read(ctx)
+    assert ctx.logger.error.call_args.kwargs["name"] == "unstamped_table"
+
+
+@pytest.mark.parametrize(
+    ("schema", "missing"),
+    [
+        ("ID string, __EXPORT_DATE timestamp", "__SOURCE"),
+        ("ID string, __SOURCE string", "__EXPORT_DATE"),
+    ],
+)
+@pytest.mark.parametrize("strategy", list(IncrementStrategy))
+def test_a_table_with_part_of_our_metadata_is_malformed(
+    spark, database, schema, missing, strategy
+):
+    """Neither ours nor foreign: guessing which would either re-stamp or misread it."""
+    value = datetime(2024, 1, 2) if "__EXPORT_DATE" in schema else _FILE
+    _foreign(spark, database, "UPDATES", [("1", value)], schema=schema)
+    ctx = _context(spark, database, strategy)
+
+    with pytest.raises(PlatformPolicyViolation, match=f"incomplete metadata: missing {missing}"):
+        TableSource().read(ctx)
+    assert ctx.logger.error.call_args.kwargs["name"] == "malformed_table"
+
+
+def test_the_deletes_table_is_held_to_the_same_rule(spark, database):
+    _write(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))])
+    _foreign(spark, database, "DELETES", [("9", datetime(2024, 1, 2))], "ID string, X timestamp")
+    ctx = _context(spark, database, IncrementStrategy.WATERMARK, deletes="DELETES")
+
+    with pytest.raises(PlatformPolicyViolation, match="`DELETES` carries none"):
+        TableSource().read_deletes(ctx)

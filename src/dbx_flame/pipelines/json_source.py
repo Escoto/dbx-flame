@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
-from dbx_flame.pipelines.base import cloud_files_options, flag
+from dbx_flame.pipelines.base import FILE_STRATEGIES, cloud_files_options, flag
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame
 
+    from dbx_flame.context.config import IncrementStrategy
     from dbx_flame.context.context import Context
 
 _FORMAT = "json"
@@ -35,6 +36,8 @@ def reader_options(ctx: Context) -> dict[str, str]:
 
 class JsonSource:
     """Read JSON files via Auto Loader streaming."""
+
+    increment_strategies: ClassVar[tuple[IncrementStrategy, ...]] = FILE_STRATEGIES
 
     def read(self, ctx: Context) -> DataFrame:
         glob = ctx.inbound_glob

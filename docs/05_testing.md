@@ -12,8 +12,8 @@ The layers are unit-testable *because* they only touch Context + DataFrame:
 
 | Layer | What is tested |
 |---|---|
-| context | coercion (`"true"`/`true`, comma lists, enums), unknown-key rejection, aggregated errors, origin × verb requirements matrix, resolved names/paths |
-| pipelines | provenance columns (incl. the `__EXPORT_DATE` regex for both file-name patterns), sanitization rules, rename patterns, pre-processor registry, SAS empty-file rules |
+| context | coercion (`"true"`/`true`, comma lists, enums), unknown-key rejection, aggregated errors, origin × verb × increment strategy matrix, resolved names/paths |
+| pipelines | provenance columns (incl. the `__EXPORT_DATE` regex for both file-name patterns), full-read stamping and the stamped / unstamped / incomplete table rule, sanitization rules, rename patterns, pre-processor registry, SAS empty-file rules |
 | typecast | YAML parsing, ordering/append semantics, missing-column error, date/timestamp formats, pass-through of undeclared columns, silent-NULL detection incl. sample capture |
 | policies | ruleset parsing and DQX validation errors, result aggregation and counts, the batch handed on unchanged, warn-continues / error-raises-after-all |
 | output | every verb against in-memory Delta tables: creation path, anti-filter idempotence (re-run = no-op), close-and-insert chains, `snapshot_scope: full` expiry, deletes double-merge, UPSERT newer-wins, FULL empty-skip, watermark boundaries |
@@ -51,6 +51,7 @@ Every one follows the same shape:
 | `complete_delta_csv_test` | COMPLETE_DELTA: a multi-snapshot backlog replayed in order, plus a watermark re-run that must be a no-op |
 | `complete_delta_csv_typecasting_test` | A week of daily full exports with a real cast config: type survival through promotion, a 7-column composite key, genuinely empty fields |
 | `complete_delta_csv_typecasting_full_test` | The same fixtures under `snapshot_scope: full`: only the newest export is replayed, with the *identical* current state |
+| `append_table_full_read_test` | `full_read` of a plain table with no framework columns, standing in for a foreign one: two reads land in Bronze as two snapshots with `TABLE:` provenance, and Silver (FULL) matches the source after it changed in place, the deleted row included |
 | `append_table_cross_catalog_test` | APPEND from a Bronze in one catalog into a Silver in another (`source.catalog`): Silver's checkpoint lives in the consumer's catalog, and a second round receives only the new export |
 | `complete_delta_json_anchor_test` | Full + delta feeds after a pause: a backlog with two full exports resyncs Silver to the newest, and the delta feed, anchored on the `__ANCHOR_DT` both Bronze feeds stamp, applies only what came after it |
 

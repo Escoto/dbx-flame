@@ -25,6 +25,9 @@ class PlatformPolicy(StrEnum):
     EMPTY_SOURCE_SCHEMA = "empty_source_schema"  # a new target has columns to build from
     UNEXPECTED_COLUMNS = "unexpected_columns"  # new columns only under add_new_columns*
     EVENT_TIME_INVALID = "event_time_invalid"  # every compared date is present and parses
+    MALFORMED_TABLE = "malformed_table"  # a source table carries all or none of our metadata
+    UNSTAMPED_TABLE = "unstamped_table"  # only a full read may stamp a table we didn't create
+    STAMPED_FULL_READ = "stamped_full_read"  # a full read never re-reads exports we hold
 
 
 class PlatformPolicyViolation(Exception):

@@ -570,6 +570,34 @@ def test_a_verb_refuses_a_strategy_it_does_not_declare():
     assert "checkpoint" in errors[0]  # the error lists what the verb does support
 
 
+def test_every_verb_can_read_a_table_in_full():
+    for verb, reqs in VERB_REQUIREMENTS.items():
+        assert IncrementStrategy.FULL_READ in reqs.increment_strategies, verb
+
+
+def test_a_full_read_is_never_a_verb_default():
+    """Only for a table we didn't create, so it has to be asked for."""
+    for verb, reqs in VERB_REQUIREMENTS.items():
+        assert reqs.increment_strategy is not IncrementStrategy.FULL_READ, verb
+
+
+def test_scd2_accepts_a_full_read_of_a_table():
+    assert validate_requirements(_scd2(increment_strategy=IncrementStrategy.FULL_READ)) == []
+
+
+@pytest.mark.parametrize("strategy", [IncrementStrategy.WATERMARK, IncrementStrategy.FULL_READ])
+def test_a_file_origin_refuses_a_strategy_it_cannot_read(strategy):
+    """SCD2 declares both, but Auto Loader can only resume from its checkpoint."""
+    config = _scd2(origin=Origin.CSV, path="/v/", directory="d", increment_strategy=strategy)
+
+    errors = validate_requirements(config)
+
+    assert errors == [
+        f"source.origin=csv does not support source.increment_strategy={strategy.value} "
+        "(supported: checkpoint)"
+    ]
+
+
 def test_an_anchor_is_refused_outside_the_watermark_strategy():
     """A checkpoint stream has no watermark to anchor, so the parameter would do nothing."""
     config = _scd2(increment_anchor=True)

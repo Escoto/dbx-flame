@@ -46,6 +46,9 @@ class SnapshotTimePattern(StrEnum):
 class IncrementStrategy(StrEnum):
     CHECKPOINT = "checkpoint"
     WATERMARK = "watermark"
+    # The whole table, as one batch, every run: for a table we didn't create, which
+    # has no stream to resume and no export stamp to follow.
+    FULL_READ = "full_read"
 
 
 class Severity(StrEnum):

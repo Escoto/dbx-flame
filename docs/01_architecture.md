@@ -16,7 +16,7 @@ dbx_flame/
 │   │   ├── csv_source.py            #   Auto Loader csv (also txt via file_extension)
 │   │   ├── json_source.py           #   Auto Loader json
 │   │   ├── sas_source.py            #   Auto Loader binaryFile discovery + pandas.read_sas
-│   │   ├── table_source.py          #   Table origin (checkpoint or watermark increments)
+│   │   ├── table_source.py          #   Table origin (checkpoint, watermark or full-read increments)
 │   │   ├── preprocessors.py         #   registry: record_envelope
 │   │   └── enrichment.py            #   provenance columns, column sanitization, rename patterns
 │   ├── typecast/                    # LAYER 3 — Typing
@@ -101,7 +101,8 @@ class Context:
     inbound_glob: str | None      # file origins
     checkpoint_location: str
     schema_hints_location: str
-    increment_strategy: IncrementStrategy   # table origins; declared by the verb
+    increment_strategy: IncrementStrategy   # declared by the verb, allowed by the origin
+    read_time: datetime           # taken once per run; the stamp a full read lands with
 ```
 
 Rules:
@@ -113,12 +114,13 @@ Rules:
 
 ```python
 class SourcePipeline(Protocol):
+    increment_strategies: ClassVar[tuple[IncrementStrategy, ...]]  # what this origin can read with
     def read(self, ctx: Context) -> DataFrame: ...
 ```
 
 - A "batch" here is simply the DataFrame in hand — an updates batch or a deletes batch; there is no wrapper type. `read` returns the updates; where a verb supports a deletes feed, `read_deletes` returns it (or `None`).
 - File origins return an Auto Loader streaming DataFrame (`availableNow` semantics applied at write time); `sas` returns a batch-per-file iterator internally but exposes the same downstream flow.
-- `table` origin supports two increment strategies (declared by the verb): `checkpoint` (Spark streaming from the source table — used by SCD2/APPEND/FULL from a table) and `watermark` (`__EXPORT_DATE > max(target.__EXPORT_DATE)` — used by COMPLETE_DELTA). It also exposes the optional **deletes feed** as a second DataFrame.
+- `table` origin supports three increment strategies; the verb declares its default and Start accepts another only where both the verb and the origin declare it: `checkpoint` (Spark streaming from the source table — the default for SCD2/APPEND/FULL/UPSERT), `watermark` (`__EXPORT_DATE > max(target.__EXPORT_DATE)` — the default for COMPLETE_DELTA) and `full_read` (the whole table as one batch, for a table we didn't create, stamped with `Context.read_time`). Before reading, it checks the table carries all of our provenance or none of it, and that only a full read meets one with none ([02_config_schema.md](02_config_schema.md)). It also exposes the optional **deletes feed** as a second DataFrame.
 - **Pre-processors**: `source.preprocessors` is an ordered list of names resolved against a registry:
 
 ```python
@@ -181,6 +183,7 @@ class Writer(Protocol):
 | Invalid/missing/unknown config | Aggregated `ConfigValidationError` at Start; nothing executed |
 | Unknown origin / verb | Config validation error (enum) |
 | Source table missing (table origin) | `RuntimeError` before any write |
+| Source table's provenance doesn't fit the strategy (table origin) | `PlatformPolicyViolation` (`malformed_table`, `unstamped_table` or `stamped_full_read`) before any read |
 | Target absent + empty incoming schema | Error — there is nothing to define the table from |
 | Cast silent-NULL detected | `PlatformPolicyViolation` (`cast_silent_null`) with one example value per column |
 | `error`-criticality check failed | `PolicyViolation` after all checks evaluated |

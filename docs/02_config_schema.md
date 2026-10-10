@@ -68,6 +68,7 @@ source.catalog: raw                    # optional; the source's catalog, as {cat
 source.schema_name: bronze_main          # schema of the source table
 source.table: SUBJECTS_UPDATES          # source table
 source.deletes_table: SUBJECTS_DELETES  # optional deletes feed
+source.increment_strategy: full_read   # optional: checkpoint | watermark | full_read; unset → the verb's default
 source.increment_anchor: false         # bool; watermark on __ANCHOR_DT instead of __EXPORT_DATE
 
 schema_evolution: fail_on_new_columns    # what happens when a new column shows up:
@@ -108,10 +109,28 @@ Notes:
   task's `catalog`, which is why `metadata_path` must be a Volume there. The job's identity
   needs `SELECT` on the source catalog. Pointing an existing task at another source catalog
   means a new source table, so its checkpoint must be reset.
-- Each verb declares its increment strategy (`checkpoint` for append/full/upsert/scd2,
-  `watermark` for complete_delta) and the Start layer resolves it onto the `Context`.
-  `source.increment_strategy` only picks where a verb allows more than one: scd2 may opt
-  into `watermark`. Any other choice is rejected at Start.
+- Each verb declares the increment strategies it supports and its default (`checkpoint` for
+  append/full/upsert/scd2, `watermark` for complete_delta), and each origin declares the ones
+  it can read with: file origins only `checkpoint` (Auto Loader resumes from nothing else), a
+  table `checkpoint`, `watermark` and `full_read`. `source.increment_strategy` picks another
+  only where both the verb and the origin allow it; any other choice is rejected at Start.
+  The Start layer resolves the result onto the `Context`.
+- `source.increment_strategy: full_read` reads the whole source table as one batch on every
+  run, with no checkpoint. It is for a table we didn't create (a federated one, say), which
+  has no stream to resume and no `__EXPORT_DATE` to follow, and every verb accepts it. Each
+  read lands as one snapshot: `__EXPORT_DATE` and `__BRONZE_LAST_MODIFIED_DT` are the run's
+  read time, taken once, and `__SOURCE` is `TABLE:<catalog>.<schema>.<table>@<read time>`. A
+  deletes table read in the same run shares that stamp, so both land in one snapshot. Every
+  run reads the whole table from the source system, so mind its size and the load on it.
+  Land it in Bronze with APPEND, one snapshot per run, and promote from there.
+- Whether a table is ours is decided by its columns, `__SOURCE` and `__EXPORT_DATE`, before
+  anything is read. A violation fails the run as a [platform policy](04_policies.md#9-platform-policies):
+
+  | The source table carries | `checkpoint` · `watermark` | `full_read` |
+  |---|---|---|
+  | both (a table we stamped) | read as is; provenance travels unchanged | `stamped_full_read`: it would load every export it holds again |
+  | neither (a table we didn't create) | `unstamped_table`: an increment can't be stamped as a snapshot | stamped with the read time |
+  | only one | `malformed_table` (incomplete metadata) | `malformed_table` |
 - `source.snapshot_time_pattern` is the export stamp agreed with the source, and Bronze
   parses `__EXPORT_DATE` from it. Only the configured pattern is read. A file whose name
   doesn't carry it fails the run before anything from its batch is written, so it never
