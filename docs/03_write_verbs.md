@@ -6,9 +6,9 @@ The Output layer writes with one of five verbs. Verbs are **layer-agnostic**: an
 
 | Column | Set by | Meaning |
 |---|---|---|
-| `__EXPORT_DATE` | Pipeline | Source export timestamp (from the file name, per `source.snapshot_time_pattern`; the read time for a full read) |
-| `__SOURCE` | Pipeline | How and where the record was read: `FILE:<path as Unity Catalog reports it>`, or `TABLE:<catalog>.<schema>.<table>@<read time>` for a full read of a table we didn't create |
-| `__ANCHOR_DT` | Pipeline | `source.anchor_dt` as a timestamp (only when configured) |
+| `__EXPORT_DATE` | Pipeline | Source export timestamp (from the file name, per `source.snapshot_time_pattern`; the read time for a full or delta read) |
+| `__SOURCE` | Pipeline | How and where the record was read: `FILE:<path as Unity Catalog reports it>`, or `TABLE:<catalog>.<schema>.<table>@<read time>` for a full or delta read of a table we didn't create |
+| `__ANCHOR_DT` | Pipeline | `source.anchor_dt` as a timestamp (only when configured; for a delta read, the source column it followed) |
 | `__BRONZE_LAST_MODIFIED_DT` | Pipeline | Bronze ingest time (dropped on promotion) |
 | `__SILVER_LAST_MODIFIED_DT` | Output | Last framework write touching the record |
 | `__START_DATE` | Output | Validity start of the history row |
@@ -38,7 +38,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 
 - **Requires**: target only.
 - **Semantics**: write incoming records to the target with Delta `append` (with `mergeSchema` when schema evolution is enabled). No keys, no history columns beyond what the Pipeline added.
-- **Increments**: file origins via Auto Loader checkpoint; table origin via streaming checkpoint, or `full_read` of a table we didn't create, which lands each read as one more snapshot (the recommended way to build Bronze from one).
+- **Increments**: file origins via Auto Loader checkpoint; table origin via streaming checkpoint, or `full_read` of a table we didn't create, which lands each read as one more snapshot (the recommended way to build Bronze from one), or `delta_read`, which lands only the rows changed since the last read, for a table too large to read whole each run.
 
 ## 2. FULL
 
@@ -48,7 +48,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 - **Semantics**: Delta `overwrite` of the target with the current dataset (with `mergeSchema`). Empty input → **skip** with an audit log entry. A source that produced nothing is a run with no news, not an instruction to empty the table.
 - **Current dataset = newest export**: a backlog can hand one batch several exports. Only the rows carrying the batch's latest `__EXPORT_DATE` are written; the older exports are superseded, never unioned in.
 - **Newer always wins**: a batch whose export is older than the target's `max(__EXPORT_DATE)` is **skipped** with an audit log entry. Yesterday's snapshot never overwrites today's.
-- **Increments**: checkpoint, or `full_read` of a table we didn't create: each read is the current dataset. An empty read is still skipped, so a source emptied on purpose never empties the target.
+- **Increments**: checkpoint, or `full_read` of a table we didn't create: each read is the current dataset. An empty read is still skipped, so a source emptied on purpose never empties the target. Never `delta_read`: the target would be replaced with only the rows that changed.
 
 ## 3. UPSERT — *new in the rewrite* (SCD Type 1)
 
@@ -60,7 +60,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
   - not matched → insert.
 - No `__START_DATE/__END_DATE/__CURRENT_FLAG/__DELETED_FLAG` columns; `__SILVER_LAST_MODIFIED_DT` is still maintained.
 - Target absent → create via append.
-- **Increments**: checkpoint, or `full_read` of a table we didn't create. Re-reading every key is safe, but with `output.event_time` on `__EXPORT_DATE` every row is newer on every read and rewritten each run; point it at a real change date from the source.
+- **Increments**: checkpoint, or `full_read` or `delta_read` of a table we didn't create. A delta read hands it only the keys that changed, which is all an upsert needs. Re-reading every key is safe, but with `output.event_time` on `__EXPORT_DATE` every row is newer on every read and rewritten each run; point it at a real change date from the source.
 
 ## 4. SCD2
 
@@ -70,7 +70,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 - **Optional**: `output.dedup.*`.
 - **Changes only**: every batch is a set of changes. A key the batch does not mention is left untouched — its absence is never read as a deletion. `snapshot_scope: full` is rejected: expiring and re-inserting every record on each load would turn Silver into a duplicate of Bronze. A source whose complete snapshot *is* the truth belongs on FULL (no history) or COMPLETE_DELTA with `snapshot_scope: full` (history kept).
 - **No deletes feed**: SCD2 runs per batch, and a stream has no way to cut a second source at the same point as its updates. A source that sends deletes separately belongs on COMPLETE_DELTA.
-- **Increments**: table origin with streaming checkpoint (each micro-batch flows through the algorithm below); file origins supported the same way. A table origin may opt into `watermark`, or `full_read` for a table we didn't create: the anti-filter (step 5b) makes a repeated full read open versions only for rows with a newer event time. Change is detected by event time, never by content, so with `output.event_time` on `__EXPORT_DATE` every row re-versions on every read (gh #51).
+- **Increments**: table origin with streaming checkpoint (each micro-batch flows through the algorithm below); file origins supported the same way. A table origin may opt into `watermark`, or `full_read` or `delta_read` for a table we didn't create: the anti-filter (step 5b) makes a repeated full read open versions only for rows with a newer event time, and a delta read hands it the same changes without re-reading the rest. Change is detected by event time, never by content, so with `output.event_time` on `__EXPORT_DATE` every row re-versions on every read (gh #51).
 
 **Algorithm** (per batch):
 
@@ -92,7 +92,8 @@ Note: SCD2 collapses to *latest per key within the processed increment* (step 2)
 
 - **Requires**: table origin (`source.table` = updates table), `output.keys`, `output.event_time.column`.
 - **Optional**: deletes feed (§7), `output.dedup.*` (applied per snapshot), `output.snapshot_scope` (§6).
-- **Increments**: watermark — only source rows with `__EXPORT_DATE > max(target.__EXPORT_DATE)` (a typed timestamp comparison, not a string one; the watermark defaults to 1900-01-01 when the target is empty or absent). `source.increment_anchor: true` swaps `__EXPORT_DATE` for `__ANCHOR_DT`, the per-record date Bronze stamped; not with `snapshot_scope: full` (§6). Or `full_read` of a table we didn't create: each run is one complete snapshot, and the deletes table, if any, shares its stamp. Under `snapshot_scope: full` the keys a read no longer carries are retired, but every unchanged row is re-versioned on each run, so history grows by the table's size per read (gh #51).
+- **Increments**: watermark — only source rows with `__EXPORT_DATE > max(target.__EXPORT_DATE)` (a typed timestamp comparison, not a string one; the watermark defaults to 1900-01-01 when the target is empty or absent). `source.increment_anchor: true` swaps `__EXPORT_DATE` for `__ANCHOR_DT`, the per-record date Bronze stamped; not with `snapshot_scope: full` (§6). Or `full_read` of a table we didn't create: each run is one complete snapshot, and the deletes table, if any, shares its stamp. Under `snapshot_scope: full` the keys a read no longer carries are retired, but every unchanged row is re-versioned on each run, so history grows by the table's size per read (gh #51). Or `delta_read`, under `snapshot_scope: delta` only: each run replays the changed rows as one partial snapshot, and keys it omits stay current.
+- **Only whole exports under `snapshot_scope: full`**: it retires every key the newest export omits, so its source must hold each export whole: files, or a Bronze filled by APPEND from files or `full_read`. A Bronze filled by `delta_read`, an anchored watermark, SCD2 or COMPLETE_DELTA holds only part of each export, and every row it lacks would be retired. The single-task combinations are rejected at Start; across two tasks it is the engineer's to configure (gh #36).
 - **Ordering contract**: exports must reach Silver in order. One that lands after a newer export was promoted is behind the watermark and is never read; reloading it is a manual step. The file-name timestamp is a snapshot's only identity, so an export split across files must stamp every part identically and deliver them all to the same run: parts with different stamps are separate exports (under `snapshot_scope: full` the last one supersedes the rest), and a part that arrives after its siblings were promoted sits on the watermark and is skipped.
 
 **Algorithm**:
