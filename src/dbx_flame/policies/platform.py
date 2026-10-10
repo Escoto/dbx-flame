@@ -21,13 +21,14 @@ class PlatformPolicy(StrEnum):
     ANCHOR_COLUMN_MISSING = "anchor_column_missing"  # source.anchor_dt names a real column
     ANCHOR_UNPARSEABLE = "anchor_unparseable"  # source.anchor_dt parses as a timestamp
     ANCHOR_NOT_STAMPED = "anchor_not_stamped"  # an anchored read finds __ANCHOR_DT
+    ANCHOR_WRONG_TYPE = "anchor_wrong_type"  # a delta_read follows a DATE or TIMESTAMP column
     CAST_SILENT_NULL = "cast_silent_null"  # a cast never turns a value into NULL
     EMPTY_SOURCE_SCHEMA = "empty_source_schema"  # a new target has columns to build from
     UNEXPECTED_COLUMNS = "unexpected_columns"  # new columns only under add_new_columns*
     EVENT_TIME_INVALID = "event_time_invalid"  # every compared date is present and parses
     MALFORMED_TABLE = "malformed_table"  # a source table carries all or none of our metadata
-    UNSTAMPED_TABLE = "unstamped_table"  # only a full read may stamp a table we didn't create
-    STAMPED_FULL_READ = "stamped_full_read"  # a full read never re-reads exports we hold
+    UNSTAMPED_TABLE = "unstamped_table"  # only a full or delta read stamps a foreign table
+    STAMPED_TABLE = "stamped_table"  # a full or delta read never re-stamps exports we hold
 
 
 class PlatformPolicyViolation(Exception):

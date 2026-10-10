@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from pyspark.sql import functions as F
 
-from dbx_flame.context.config import SnapshotTimePattern
+from dbx_flame.context.config import FILE_ORIGINS, SnapshotTimePattern
 from dbx_flame.policies.platform import PlatformPolicy, violate
 
 if TYPE_CHECKING:
@@ -78,10 +78,10 @@ def add_provenance(df: DataFrame, ctx: Context) -> DataFrame:
     )
 
 
-def stamp_full_read(df: DataFrame, table: str, read_time: datetime) -> DataFrame:
-    """Provenance for a full read of a table we didn't create: one snapshot, one stamp.
+def stamp_table_read(df: DataFrame, table: str, read_time: datetime) -> DataFrame:
+    """Provenance for a full or delta read of a table we didn't create: one stamp per read.
 
-    The read time is the snapshot's export date: the moment the table looked like this.
+    The read time is the export date: the moment the table looked like this.
     """
     name = table.replace("`", "")
     return (
@@ -170,7 +170,8 @@ def stamp_anchor(df: DataFrame, ctx: Context) -> DataFrame:
     logged: an anchored read will never pick that row up.
     """
     anchor = ctx.config.source.anchor_dt
-    if anchor is None:
+    # A delta_read stamps it as it reads, while the column still has the source's name.
+    if anchor is None or ctx.config.source.origin not in FILE_ORIGINS:
         return df
 
     kind = dict(df.dtypes).get(anchor.column)

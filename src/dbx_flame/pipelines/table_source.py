@@ -1,4 +1,4 @@
-"""Table origin — checkpoint, watermark or full-read increments."""
+"""Table origin — checkpoint, watermark, full-read or delta-read increments."""
 
 from __future__ import annotations
 
@@ -6,13 +6,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, Optional
 
 from pyspark.sql import functions as F
+from pyspark.sql.types import DateType, TimestampNTZType, TimestampType
 
 from dbx_flame.context.config import IncrementStrategy
 from dbx_flame.pipelines.enrichment import (
     ANCHOR_DT,
     EXPORT_DATE,
     PROVENANCE_MARKERS,
-    stamp_full_read,
+    stamp_table_read,
 )
 from dbx_flame.policies.platform import PlatformPolicy, violate
 
@@ -27,6 +28,19 @@ DEFAULT_WATERMARK = datetime(1900, 1, 1)
 _SOURCE = "TableSource"
 _MARKERS = ", ".join(PROVENANCE_MARKERS)
 
+# The strategies for a table we didn't create: each read is stamped as one export.
+_FOREIGN_READS = (IncrementStrategy.FULL_READ, IncrementStrategy.DELTA_READ)
+
+# Compared as they are, with no parse, so a delta_read's filter reaches the source.
+_ANCHOR_TYPES = (DateType, TimestampType, TimestampNTZType)
+
+
+def _follows_anchor(ctx: Context) -> bool:
+    return (
+        ctx.config.source.increment_anchor
+        or ctx.increment_strategy == IncrementStrategy.DELTA_READ
+    )
+
 
 def _anchor_column(ctx: Context) -> str:
     """__ANCHOR_DT when anchored, else the arrival timestamp the framework adds.
@@ -34,7 +48,7 @@ def _anchor_column(ctx: Context) -> str:
     Both are timestamps written at ingestion, so the filter compares a real column and
     can reach the scan.
     """
-    return ANCHOR_DT if ctx.config.source.increment_anchor else EXPORT_DATE
+    return ANCHOR_DT if _follows_anchor(ctx) else EXPORT_DATE
 
 
 def _is_stamped(ctx: Context, table: str) -> bool:
@@ -56,7 +70,7 @@ def _is_stamped(ctx: Context, table: str) -> bool:
 
 def _require_anchor(ctx: Context, table: str) -> None:
     """An unstamped table would read as NULL anchors: every row silently skipped."""
-    if ctx.config.source.increment_anchor and ANCHOR_DT not in ctx.spark.table(table).columns:
+    if _follows_anchor(ctx) and ANCHOR_DT not in ctx.spark.table(table).columns:
         violate(
             ctx,
             PlatformPolicy.ANCHOR_NOT_STAMPED,
@@ -72,6 +86,7 @@ class TableSource:
         IncrementStrategy.CHECKPOINT,
         IncrementStrategy.WATERMARK,
         IncrementStrategy.FULL_READ,
+        IncrementStrategy.DELTA_READ,
     )
 
     def __init__(self) -> None:
@@ -93,8 +108,8 @@ class TableSource:
 
     def _read_table(self, ctx: Context, table: str) -> DataFrame:
         stamped = _is_stamped(ctx, table)
-        if ctx.increment_strategy == IncrementStrategy.FULL_READ:
-            return self._full_read(ctx, table, stamped)
+        if ctx.increment_strategy in _FOREIGN_READS:
+            return self._foreign_read(ctx, table, stamped)
 
         if not stamped:
             # Stamping here would label an increment as a whole snapshot, and per
@@ -104,7 +119,7 @@ class TableSource:
                 PlatformPolicy.UNSTAMPED_TABLE,
                 _SOURCE,
                 f"{table} carries none of {_MARKERS}: a table we didn't create can only be "
-                "read with source.increment_strategy=full_read",
+                "read with source.increment_strategy=full_read or delta_read",
             )
 
         if ctx.increment_strategy == IncrementStrategy.CHECKPOINT:
@@ -115,28 +130,67 @@ class TableSource:
             return ctx.spark.readStream.option("ignoreDeletes", "true").table(table)
         return self._since_watermark(ctx, table)
 
-    def _full_read(self, ctx: Context, table: str, stamped: bool) -> DataFrame:
-        """The whole table as one batch, stamped as a single snapshot taken at the read time."""
+    def _foreign_read(self, ctx: Context, table: str, stamped: bool) -> DataFrame:
+        """The whole table, or the rows it changed, as one batch stamped at the read time."""
+        strategy = ctx.increment_strategy.value
         if stamped:
-            # Our own table already holds its exports: reading them all again would append
+            # Our own table already holds its exports: stamping them again would append
             # them twice, or replay snapshots older than the target already holds.
             violate(
                 ctx,
-                PlatformPolicy.STAMPED_FULL_READ,
+                PlatformPolicy.STAMPED_TABLE,
                 _SOURCE,
-                f"{table} already carries {_MARKERS}: a full read would load every export "
+                f"{table} already carries {_MARKERS}: a {strategy} would stamp the exports "
                 "it holds again; read it with source.increment_strategy=checkpoint or watermark",
             )
+
+        df = ctx.spark.table(table)
+        if ctx.increment_strategy == IncrementStrategy.DELTA_READ:
+            df = self._changed_rows(ctx, table, df)
 
         ctx.logger.info(
             name="table_stamped",
             source=_SOURCE,
             description=(
-                f"Full read of {table}, which carries no export stamp of its own: "
+                f"{strategy} of {table}, which carries no export stamp of its own: "
                 f"stamped {EXPORT_DATE}={ctx.read_time.isoformat()}"
             ),
         )
-        return stamp_full_read(ctx.spark.table(table), table, ctx.read_time)
+        return stamp_table_read(df, table, ctx.read_time)
+
+    def _changed_rows(self, ctx: Context, table: str, df: DataFrame) -> DataFrame:
+        """Rows whose source.anchor_dt column is past the target's highest __ANCHOR_DT.
+
+        The column is filtered as the source has it, and copied into __ANCHOR_DT for
+        the next run's watermark.
+        """
+        anchor = ctx.config.source.anchor_dt
+        assert anchor  # required for delta_read at Start
+        found = next(
+            (f for f in df.schema.fields if f.name.upper() == anchor.column.upper()), None
+        )
+        if found is None:
+            violate(
+                ctx,
+                PlatformPolicy.ANCHOR_COLUMN_MISSING,
+                _SOURCE,
+                f"source.anchor_dt.column={anchor.column} is not in {table}",
+            )
+        if not isinstance(found.dataType, _ANCHOR_TYPES):
+            violate(
+                ctx,
+                PlatformPolicy.ANCHOR_WRONG_TYPE,
+                _SOURCE,
+                f"source.anchor_dt.column={anchor.column} in {table} is "
+                f"{found.dataType.simpleString()}: a delta_read follows a DATE or TIMESTAMP "
+                "column, so its filter reaches the source",
+            )
+
+        column = F.col(f"`{found.name}`")
+        # The watermark takes the column's type, not the other way round, so the filter
+        # stays a plain predicate on the source column.
+        watermark = F.lit(self._watermark_for(ctx)).cast(found.dataType)
+        return df.filter(column > watermark).withColumn(ANCHOR_DT, column.cast("timestamp"))
 
     def _since_watermark(self, ctx: Context, table: str) -> DataFrame:
         """A plain comparison on a timestamp column, so it reaches the scan.

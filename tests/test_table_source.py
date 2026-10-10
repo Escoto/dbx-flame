@@ -1,4 +1,4 @@
-"""Tests for pipelines.table_source — checkpoint, watermark and full-read increments."""
+"""Tests for pipelines.table_source — checkpoint, watermark, full and delta reads."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from dbx_flame.context.config import (
+    EventTimeConfig,
     IncrementStrategy,
     Origin,
     OutputConfig,
@@ -64,7 +65,14 @@ def _foreign(spark, database, table, rows, schema="ID string, NAME string"):
 
 def _context(spark, database, strategy, *, deletes=None, **source_overrides):
     """A Context built by hand: build_context resolves Unity Catalog three-part names."""
-    source = dict(origin=Origin.TABLE, schema_name="bronze_cro", table="UPDATES")
+    source = dict(
+        origin=Origin.TABLE,
+        schema_name="bronze_cro",
+        table="UPDATES",
+        increment_strategy=IncrementStrategy(strategy),
+    )
+    if strategy == IncrementStrategy.DELTA_READ:
+        source["anchor_dt"] = EventTimeConfig(column="MODIFIED_AT")
     source.update(source_overrides)
     config = TaskConfig(
         catalog="cro",
@@ -373,28 +381,30 @@ def test_updates_and_deletes_read_in_full_share_one_snapshot(spark, database):
     assert updates == deletes == READ_TIME
 
 
-def test_a_full_read_refuses_a_table_we_already_stamped(spark, database):
+@pytest.mark.parametrize("strategy", [IncrementStrategy.FULL_READ, IncrementStrategy.DELTA_READ])
+def test_a_foreign_read_refuses_a_table_we_already_stamped(spark, database, strategy):
     """Our own Bronze holds its exports: re-reading them appends or replays them twice."""
     _write(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))])
-    ctx = _context(spark, database, IncrementStrategy.FULL_READ)
+    ctx = _context(spark, database, strategy)
 
-    with pytest.raises(PlatformPolicyViolation, match="stamped_full_read: .* already carries"):
+    with pytest.raises(PlatformPolicyViolation, match=f"stamped_table: .* a {strategy.value}"):
         TableSource().read(ctx)
-    assert ctx.logger.error.call_args.kwargs["name"] == "stamped_full_read"
+    assert ctx.logger.error.call_args.kwargs["name"] == "stamped_table"
 
 
 @pytest.mark.parametrize("strategy", [IncrementStrategy.CHECKPOINT, IncrementStrategy.WATERMARK])
-def test_only_a_full_read_may_read_a_table_we_did_not_create(spark, database, strategy):
+def test_only_a_full_or_delta_read_may_read_a_table_we_did_not_create(spark, database, strategy):
     """Stamping an increment would pass it off as a whole snapshot, one per micro-batch.
 
-    FULL would then keep the last micro-batch and drop the rest, so nothing but a full
-    read ever stamps a table.
+    FULL would then keep the last micro-batch and drop the rest, so only a read that
+    stamps once per run, full or delta, may read a table we didn't create.
     """
     _foreign(spark, database, "UPDATES", [("1", "alice")])
     ctx = _context(spark, database, strategy)
 
     with pytest.raises(
-        PlatformPolicyViolation, match="unstamped_table: .*increment_strategy=full_read"
+        PlatformPolicyViolation,
+        match="unstamped_table: .*increment_strategy=full_read or delta_read",
     ):
         TableSource().read(ctx)
     assert ctx.logger.error.call_args.kwargs["name"] == "unstamped_table"
@@ -419,6 +429,142 @@ def test_a_table_with_part_of_our_metadata_is_malformed(
     with pytest.raises(PlatformPolicyViolation, match=f"incomplete metadata: missing {missing}"):
         TableSource().read(ctx)
     assert ctx.logger.error.call_args.kwargs["name"] == "malformed_table"
+
+
+# --- delta read ------------------------------------------------------------------
+
+CHANGED = "ID string, MODIFIED_AT timestamp"
+
+
+def _target(spark, database, anchor):
+    """The target a previous delta read filled, its highest __ANCHOR_DT at `anchor`."""
+    _snapshot(spark, database, "SUBJECTS", [("1", anchor, READ_TIME)])
+
+
+def _ids(df):
+    return sorted(row["ID"] for row in df.collect())
+
+
+def test_a_first_delta_read_takes_every_row(spark, database):
+    _foreign(
+        spark,
+        database,
+        "UPDATES",
+        [("1", datetime(2024, 1, 2)), ("2", datetime(1999, 1, 1))],
+        CHANGED,
+    )
+    ctx = _context(spark, database, IncrementStrategy.DELTA_READ)
+
+    assert _ids(TableSource().read(ctx)) == ["1", "2"]
+
+
+def test_a_delta_read_takes_only_rows_changed_since_the_target(spark, database):
+    _target(spark, database, datetime(2024, 1, 3))
+    _foreign(
+        spark,
+        database,
+        "UPDATES",
+        [("1", datetime(2024, 1, 2)), ("2", datetime(2024, 1, 3)), ("3", datetime(2024, 1, 4))],
+        CHANGED,
+    )
+    ctx = _context(spark, database, IncrementStrategy.DELTA_READ)
+
+    assert _ids(TableSource().read(ctx)) == ["3"]
+
+
+def test_a_delta_read_stamps_the_read_and_copies_the_column_it_follows(spark, database):
+    _foreign(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))], CHANGED)
+    ctx = _context(spark, database, IncrementStrategy.DELTA_READ)
+
+    row = TableSource().read(ctx).collect()[0]
+
+    assert row["__ANCHOR_DT"] == datetime(2024, 1, 2)
+    assert row["__EXPORT_DATE"] == READ_TIME
+    assert row["__SOURCE"] == f"TABLE:{database}.UPDATES@{READ_TIME.isoformat()}"
+    assert ctx.logger.info.call_args.kwargs["name"] == "table_stamped"
+
+
+def test_a_delta_read_on_a_date_skips_the_watermark_day(spark, database):
+    """The documented trade-off: a row changed later on the last day read is missed."""
+    _target(spark, database, datetime(2024, 1, 3))
+    _foreign(
+        spark,
+        database,
+        "UPDATES",
+        [("1", datetime(2024, 1, 3).date()), ("2", datetime(2024, 1, 4).date())],
+        "ID string, MODIFIED_AT date",
+    )
+    ctx = _context(spark, database, IncrementStrategy.DELTA_READ)
+
+    rows = TableSource().read(ctx).collect()
+
+    assert [row["ID"] for row in rows] == ["2"]
+    assert rows[0]["__ANCHOR_DT"] == datetime(2024, 1, 4)
+
+
+def test_a_delta_read_follows_a_timestamp_without_time_zone(spark, database):
+    _target(spark, database, datetime(2024, 1, 3))
+    _foreign(
+        spark,
+        database,
+        "UPDATES",
+        [("1", datetime(2024, 1, 3)), ("2", datetime(2024, 1, 4))],
+        "ID string, MODIFIED_AT timestamp_ntz",
+    )
+    ctx = _context(spark, database, IncrementStrategy.DELTA_READ)
+
+    assert _ids(TableSource().read(ctx)) == ["2"]
+
+
+def test_a_delta_read_names_the_column_as_the_source_has_it_in_any_case(spark, database):
+    _foreign(
+        spark,
+        database,
+        "UPDATES",
+        [("1", datetime(2024, 1, 2))],
+        "ID string, modified_at timestamp",
+    )
+    ctx = _context(spark, database, IncrementStrategy.DELTA_READ)
+
+    assert _ids(TableSource().read(ctx)) == ["1"]
+
+
+def test_the_delta_read_filter_reaches_the_scan(spark, database):
+    """A plain comparison on the source column, so the source can apply it."""
+    _foreign(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))], CHANGED)
+    ctx = _context(spark, database, IncrementStrategy.DELTA_READ)
+
+    plan = TableSource().read(ctx)._jdf.queryExecution().executedPlan().toString()
+
+    assert re.search(r"DataFilters: \[[^\]]*\(MODIFIED_AT#\d+ >", plan), plan
+
+
+def test_a_delta_read_refuses_a_column_the_source_lacks(spark, database):
+    _foreign(spark, database, "UPDATES", [("1", "alice")])
+    ctx = _context(spark, database, IncrementStrategy.DELTA_READ)
+
+    with pytest.raises(PlatformPolicyViolation, match="MODIFIED_AT is not in"):
+        TableSource().read(ctx)
+    assert ctx.logger.error.call_args.kwargs["name"] == "anchor_column_missing"
+
+
+def test_a_delta_read_refuses_a_column_that_is_not_a_date(spark, database):
+    _foreign(spark, database, "UPDATES", [("1", "2024-01-02")], "ID string, MODIFIED_AT string")
+    ctx = _context(spark, database, IncrementStrategy.DELTA_READ)
+
+    with pytest.raises(PlatformPolicyViolation, match="is string: a delta_read follows a DATE"):
+        TableSource().read(ctx)
+    assert ctx.logger.error.call_args.kwargs["name"] == "anchor_wrong_type"
+
+
+def test_a_delta_read_refuses_a_target_without_anchor_dt(spark, database):
+    """Its watermark would be NULL, so every run would read the whole source again."""
+    _write(spark, database, "SUBJECTS", [("1", datetime(2024, 1, 3))])
+    _foreign(spark, database, "UPDATES", [("1", datetime(2024, 1, 2))], CHANGED)
+    ctx = _context(spark, database, IncrementStrategy.DELTA_READ)
+
+    with pytest.raises(PlatformPolicyViolation, match="`SUBJECTS` has no __ANCHOR_DT"):
+        TableSource().read(ctx)
 
 
 def test_the_deletes_table_is_held_to_the_same_rule(spark, database):

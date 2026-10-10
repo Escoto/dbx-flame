@@ -358,6 +358,16 @@ def test_anchor_dt_rejected_on_table_origin():
         load_config(params)
 
 
+def test_anchor_dt_names_the_column_a_delta_read_follows():
+    params = {
+        **TABLE_PARAMS,
+        "source.increment_strategy": "delta_read",
+        "source.anchor_dt.column": "MODIFIED_AT",
+    }
+
+    assert load_config(params).source.anchor_dt.column == "MODIFIED_AT"
+
+
 _UPSERT_PARAMS = {**MINIMAL_PARAMS, "output.verb": "upsert", "output.keys": "ID"}
 
 

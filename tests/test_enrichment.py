@@ -10,7 +10,7 @@ import pytest
 
 from pyspark.sql import functions as F
 
-from dbx_flame.context.config import EventTimeConfig, SnapshotTimePattern
+from dbx_flame.context.config import EventTimeConfig, Origin, SnapshotTimePattern
 from dbx_flame.pipelines.enrichment import (
     _export_date,
     add_provenance,
@@ -215,7 +215,8 @@ def test_no_patterns_returns_the_input_untouched(spark):
 # --- __ANCHOR_DT ----------------------------------------------------------------
 
 
-def _anchored(ctx, column="MODIFIED", format=None):
+def _anchored(ctx, column="MODIFIED", format=None, origin=Origin.CSV):
+    ctx.config.source.origin = origin
     ctx.config.source.anchor_dt = EventTimeConfig(column=column, format=format)
     return ctx
 
@@ -225,6 +226,13 @@ def test_no_anchor_configured_leaves_the_batch_alone(spark, ctx):
     df = spark.createDataFrame([("1", "2024-01-01")], "ID string, MODIFIED string")
 
     assert stamp_anchor(df, ctx).columns == ["ID", "MODIFIED"]
+
+
+def test_a_table_origin_is_left_to_the_delta_read_that_stamped_it(spark, ctx):
+    """By now sanitization may have renamed the source column the read followed."""
+    df = spark.createDataFrame([("1", datetime(2024, 1, 15))], "ID string, MODIFIED timestamp")
+
+    assert stamp_anchor(df, _anchored(ctx, origin=Origin.TABLE)).columns == ["ID", "MODIFIED"]
 
 
 def test_a_string_anchor_is_parsed_with_its_format(spark, ctx):

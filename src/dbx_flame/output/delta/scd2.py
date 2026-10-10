@@ -55,10 +55,12 @@ class Scd2Writer:
         # Checkpoint stays the default; watermark suits a source that carries a
         # per-record date. A full read is safe to repeat: the anti-filter drops every
         # row the target already holds at that event time, so only newer ones open a version.
+        # A delta read is the same changes, without re-reading the rest.
         increment_strategies=(
             IncrementStrategy.CHECKPOINT,
             IncrementStrategy.WATERMARK,
             IncrementStrategy.FULL_READ,
+            IncrementStrategy.DELTA_READ,
         ),
     )
 

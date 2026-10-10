@@ -49,6 +49,9 @@ class IncrementStrategy(StrEnum):
     # The whole table, as one batch, every run: for a table we didn't create, which
     # has no stream to resume and no export stamp to follow.
     FULL_READ = "full_read"
+    # Only the rows a table we didn't create changed since the last run, found through
+    # the source column named by source.anchor_dt. Never a whole snapshot.
+    DELTA_READ = "delta_read"
 
 
 class Severity(StrEnum):
@@ -110,6 +113,7 @@ class SourceConfig(BaseModel):
 
     # Bronze only: the per-record date copied into __ANCHOR_DT as a timestamp, so a
     # later watermark compares a real column rather than parsing a string per read.
+    # On a delta_read it is also the source column the read follows.
     anchor_dt: Optional[EventTimeConfig] = None
 
     # The watermark compares __ANCHOR_DT instead of __EXPORT_DATE, which tracks when a
@@ -164,9 +168,13 @@ class SourceConfig(BaseModel):
             # A table origin reads the __EXPORT_DATE its Bronze already parsed.
             problems.append("source.snapshot_time_pattern applies to file origins only")
 
-        if self.anchor_dt and self.origin not in FILE_ORIGINS:
+        reads_changes = self.increment_strategy == IncrementStrategy.DELTA_READ
+        if self.anchor_dt and self.origin not in FILE_ORIGINS and not reads_changes:
             # Written once at ingestion; a table origin carries the column its Bronze wrote.
-            problems.append("source.anchor_dt applies to file origins only (csv, json, sas)")
+            problems.append(
+                "source.anchor_dt applies to file origins (csv, json, sas) and to "
+                "source.increment_strategy=delta_read only"
+            )
 
         if self.options.schema_hints and self.origin != Origin.JSON:
             # CSV already reads every column as STRING; a typed hint would send bad values to
