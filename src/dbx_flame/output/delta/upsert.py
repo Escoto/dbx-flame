@@ -11,6 +11,7 @@ from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.mechanics import (
     as_timestamp,
+    key_condition,
     log_rows_written,
     merge_schema,
     require_no_new_columns,
@@ -54,7 +55,7 @@ class UpsertWriter:
         require_no_new_columns(prepared, ctx)
 
         target = DeltaTable.forName(ctx.spark, ctx.target_table)
-        matched = " AND ".join(f"t.`{key}` = s.`{key}`" for key in ctx.config.output.keys)
+        matched = key_condition(ctx.config.output.keys, "s", "t")
         merge = target.alias("t").merge(prepared.alias("s"), matched)
 
         # `if newer` would evaluate the Column's truthiness, which raises.
