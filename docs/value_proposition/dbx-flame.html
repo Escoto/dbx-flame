@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dbx-flame</title>
+<style>
+  @page { size: A4 landscape; margin: 0; }
+
+  :root {
+    --ink: #14213d;
+    --body: #3d4659;
+    --muted: #7a8396;
+    --flame: #e8590c;
+    --flame-soft: #fff1e8;
+    --line: #e6e8ee;
+    --paper: #ffffff;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { background: #eef0f4; }
+
+  body {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--body);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page {
+    width: 297mm;
+    height: 210mm;
+    margin: 0 auto;
+    background: var(--paper);
+    padding: 14mm 14mm 10mm;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* On screen the A4 page scales to the window; print always uses its real size. */
+  @media screen {
+    body { zoom: var(--fit, 1); }
+    .page { margin: 24px auto; box-shadow: 0 4px 24px rgba(20, 33, 61, .12); }
+  }
+
+  .accent {
+    position: absolute; top: 0; left: 0; right: 0; height: 5px;
+    background: linear-gradient(90deg, #f59f00, var(--flame) 45%, #c92a2a);
+  }
+
+  header { display: flex; align-items: flex-start; gap: 10mm; margin-bottom: 7mm; }
+
+  .brand {
+    flex: none;
+    font-weight: 800; font-size: 15pt; letter-spacing: .5px; color: var(--ink);
+    display: flex; align-items: center; gap: 6px;
+    padding-top: 2px;
+  }
+  .brand svg { width: 20px; height: 20px; }
+
+  .logo { flex: none; display: flex; flex-direction: column; align-items: flex-end; }
+  .version { font-size: 8.5pt; font-weight: 600; color: var(--muted); margin-top: 1px; }
+
+  .headline {
+    font-size: 18pt; line-height: 1.3; font-weight: 400; color: var(--ink);
+    max-width: 225mm;
+  }
+  .headline strong { font-weight: 700; color: var(--flame); }
+
+  /* Subgrid lines up each row (icon, title, text, benefits) across the five pillars. */
+  .pillars {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: auto auto auto auto 1fr;
+    column-gap: 7mm;
+  }
+
+  .pillar { display: grid; grid-row: span 5; grid-template-rows: subgrid; }
+
+  .icon {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: var(--flame-soft); color: var(--flame);
+    display: grid; place-items: center; margin-bottom: 4mm;
+  }
+  .icon svg { width: 19px; height: 19px; }
+
+  .num { font-size: 8pt; font-weight: 700; color: var(--flame); letter-spacing: 1px; }
+
+  h2 {
+    font-size: 13.5pt; line-height: 1.2; color: var(--ink); font-weight: 700;
+    margin: 1mm 0 3.5mm;
+  }
+
+  .text { font-size: 9.3pt; line-height: 1.5; }
+
+  ul {
+    list-style: none; align-self: start;
+    border-top: 1px solid var(--line);
+    padding-top: 3.5mm; margin-top: 4mm;
+  }
+  li {
+    font-size: 9.6pt; font-weight: 600; color: var(--ink);
+    display: flex; gap: 7px; align-items: flex-start; line-height: 1.3;
+    margin-bottom: 2.6mm;
+  }
+  li::before {
+    content: ""; flex: none; width: 7px; height: 7px; margin-top: 4px;
+    border-radius: 2px; background: var(--flame); transform: rotate(45deg);
+  }
+
+  footer {
+    display: flex; justify-content: space-between; align-items: center;
+    border-top: 1px solid var(--line); padding-top: 4mm; margin-top: 4mm;
+    font-size: 8pt; color: var(--muted);
+  }
+  footer b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="accent"></div>
+
+  <header>
+    <div class="logo">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#e8590c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 0-3-1-5.5 1-8.5z"/></svg>
+        dbx-flame
+      </div>
+      <span class="version">v0.1.0</span>
+    </div>
+    <p class="headline">Onboard a new dataset with a <strong>configuration file, not code</strong>, and trace every record in Silver and Gold back to the <strong>exact file or table</strong> it came from.</p>
+  </header>
+
+  <main class="pillars">
+
+    <section class="pillar">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></div>
+      <div class="num">01</div>
+      <h2>Configuration-Driven Ingestion</h2>
+      <p class="text">Each dataset is a short YAML block in a workflow: its source, how to write it, and where. One engine reads CSV and JSON files, Delta tables and federated databases (SQL Server, Postgres and more, through Unity Catalog). Five write patterns cover every layer: append, full refresh, upsert, history (SCD2) and complete replay. Every combination is checked before any data is read.</p>
+      <ul>
+        <li>New dataset = one YAML file</li>
+        <li>Invalid setups are rejected before they run</li>
+        <li>The same patterns serve every layer</li>
+      </ul>
+    </section>
+
+    <section class="pillar">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg></div>
+      <div class="num">02</div>
+      <h2>Built-in Data Quality</h2>
+      <p class="text">Each batch passes a quality gate before it is written. Your rules live in a Databricks DQX ruleset, versioned with the pipeline: errors stop the batch, warnings are logged. Framework checks are always on, for files without an export stamp, values a type conversion would silently turn into NULL, unparseable dates and unexpected new columns.</p>
+      <ul>
+        <li>Bad batches never land</li>
+        <li>Silent data loss is caught at the source</li>
+        <li>Rules versioned with the pipeline</li>
+      </ul>
+    </section>
+
+    <section class="pillar">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="12" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8.5 6H12a3 3 0 0 1 3 3v.5M8.5 18H12a3 3 0 0 0 3-3v-.5"/></svg></div>
+      <div class="num">03</div>
+      <h2>Record-Level Traceability (ALCOA+)</h2>
+      <p class="text">Every row carries where it came from and when it was exported. That record is written once, when the data enters the platform, and never overwritten as the row moves to Silver and Gold. Table lineage shows which tables feed which; this shows the exact file or table read behind each row. Every run writes an audit record with its row counts.</p>
+      <ul>
+        <li>Any Gold row traced to its source</li>
+        <li>Audit-ready by design</li>
+        <li>Every run logged, success or failure</li>
+      </ul>
+    </section>
+
+    <section class="pillar">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7.5V12l3 2"/></svg></div>
+      <div class="num">04</div>
+      <h2>Complete History, Correctly Ordered</h2>
+      <p class="text">History-tracking tables keep every version of a record with its validity window. A backlog of exports is replayed one export at a time, in order, so no intermediate state is lost. Deletes are recorded and flagged, never physically removed, and full snapshots retire records the source has dropped. Re-running a job never changes the result.</p>
+      <ul>
+        <li>Every change preserved</li>
+        <li>Safe re-runs, no duplicates</li>
+        <li>No physical deletes, ever</li>
+      </ul>
+    </section>
+
+    <section class="pillar">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg></div>
+      <div class="num">05</div>
+      <h2>Deployed and Tested as Code</h2>
+      <p class="text">dbx-flame ships as a Python package and deploys through Databricks Declarative Automation Bundles. Environments are separated by catalog naming, so moving from dev to prod is a deployment, not a rebuild. Every change runs a unit suite and a platform suite of real Databricks jobs that generate their own data and check the resulting tables.</p>
+      <ul>
+        <li>dev → prod in one command</li>
+        <li>Tested on real Databricks, every change</li>
+        <li>No notebooks, no hidden logic</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <footer>
+    <span><b>Next on the roadmap:</b> Gold as SQL views over Silver · governed data exports · read-consistency options for federated sources</span>
+    <span>Databricks · Delta Lake · DQX · Unity Catalog</span>
+  </footer>
+</div>
+<script>
+  const page = document.querySelector(".page");
+  const fit = () => document.documentElement.style.setProperty(
+    "--fit", Math.min(1, (innerWidth - 48) / page.offsetWidth));
+  addEventListener("resize", fit);
+  fit();
+</script>
+</body>
+</html>
