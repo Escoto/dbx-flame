@@ -33,7 +33,7 @@ COLUMNS = {
     "ID",
     "NAME",
     "SOURCE_SYSTEM",
-    "__BRONZE_LAST_MODIFIED_DT",
+    "__LAST_MODIFIED_DT",
     "__SOURCE",
     "__EXPORT_DATE",
 }

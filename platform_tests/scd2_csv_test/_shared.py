@@ -27,7 +27,7 @@ EVENT_FORMAT = "MM/dd/yyyy HH:mm:ss"
 BUSINESS_COLUMNS = {"ID", "NAME", "SOURCE_SYSTEM", EVENT_COLUMN}
 
 BRONZE_COLUMNS = BUSINESS_COLUMNS | {
-    "__BRONZE_LAST_MODIFIED_DT",
+    "__LAST_MODIFIED_DT",
     "__SOURCE",
     "__EXPORT_DATE",
 }
@@ -35,7 +35,7 @@ BRONZE_COLUMNS = BUSINESS_COLUMNS | {
 SILVER_COLUMNS = BUSINESS_COLUMNS | {
     "__SOURCE",
     "__EXPORT_DATE",
-    "__SILVER_LAST_MODIFIED_DT",
+    "__LAST_MODIFIED_DT",
     "__START_DATE",
     "__END_DATE",
     "__CURRENT_FLAG",
@@ -99,6 +99,13 @@ def expect_window(row, start: str, end, current: str) -> None:
         row["__CURRENT_FLAG"] == current
     ), f"expected __CURRENT_FLAG {current}, found {row['__CURRENT_FLAG']}"
     assert row["__DELETED_FLAG"] == "N", "nothing in this test is deleted"
+
+
+def expect_one_stamp(df):
+    """Every row a run wrote or updated carries that run's single __LAST_MODIFIED_DT."""
+    stamps = {row[0] for row in df.select("__LAST_MODIFIED_DT").distinct().collect()}
+    assert len(stamps) == 1 and None not in stamps, f"expected one write time, found {stamps}"
+    return stamps.pop()
 
 
 def expect_stats_columns(spark, table: str, *required: str) -> None:

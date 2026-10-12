@@ -85,7 +85,6 @@ def test_a_file_origin_gets_provenance(spark, tmp_path):
     assert result.columns == [
         "AGENT_ID",
         "FULL_NAME",
-        "__BRONZE_LAST_MODIFIED_DT",
         "__SOURCE",
         "__EXPORT_DATE",
     ]

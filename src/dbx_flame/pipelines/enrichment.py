@@ -41,10 +41,8 @@ _FILE_PREFIX = "FILE:"
 _TABLE_PREFIX = "TABLE:"
 
 EXPORT_DATE = "__EXPORT_DATE"
-_BRONZE_TIMESTAMP = "__BRONZE_LAST_MODIFIED_DT"
 
-# A table we stamped carries both; one we didn't create carries neither. Not the Bronze
-# timestamp: promotion drops it, so a Silver read as a source has it no longer.
+# A table we stamped carries both; one we didn't create carries neither.
 PROVENANCE_MARKERS = (SOURCE, EXPORT_DATE)
 
 # Auto Loader's catch-all for values that did not fit the inferred schema.
@@ -64,17 +62,14 @@ def _export_date(file_path: Column, pattern: SnapshotTimePattern) -> Column:
 
 
 def add_provenance(df: DataFrame, ctx: Context) -> DataFrame:
-    """Add __bronze_last_modified_dt, __SOURCE and __EXPORT_DATE.
+    """Add __SOURCE and __EXPORT_DATE.
 
-    Runs before sanitization, so the patterns match the source's own casing and are
-    uppercased into the metadata contract (__BRONZE_LAST_MODIFIED_DT, ...) there.
+    Runs before sanitization, so the rename patterns match the source's own casing.
     """
     pattern = ctx.config.source.snapshot_time_pattern or SnapshotTimePattern.DATETIME
     file_path = F.col("_metadata.file_path")
-    return (
-        df.withColumn("__bronze_last_modified_dt", F.current_timestamp())
-        .withColumn(SOURCE, F.concat(F.lit(_FILE_PREFIX), file_path))
-        .withColumn(EXPORT_DATE, _export_date(file_path, pattern))
+    return df.withColumn(SOURCE, F.concat(F.lit(_FILE_PREFIX), file_path)).withColumn(
+        EXPORT_DATE, _export_date(file_path, pattern)
     )
 
 
@@ -84,11 +79,9 @@ def stamp_table_read(df: DataFrame, table: str, read_time: datetime) -> DataFram
     The read time is the export date: the moment the table looked like this.
     """
     name = table.replace("`", "")
-    return (
-        df.withColumn(_BRONZE_TIMESTAMP, F.lit(read_time))
-        .withColumn(SOURCE, F.lit(f"{_TABLE_PREFIX}{name}@{read_time.isoformat()}"))
-        .withColumn(EXPORT_DATE, F.lit(read_time))
-    )
+    return df.withColumn(
+        SOURCE, F.lit(f"{_TABLE_PREFIX}{name}@{read_time.isoformat()}")
+    ).withColumn(EXPORT_DATE, F.lit(read_time))
 
 
 def reject_unstamped(df: DataFrame, ctx: Context) -> None:

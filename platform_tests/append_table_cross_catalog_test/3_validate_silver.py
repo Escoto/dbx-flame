@@ -29,12 +29,13 @@ expected = int(sys.argv[5])
 assert spark.catalog.tableExists(silver()), "silver table was not created"
 df = spark.table(silver())
 
-# APPEND carries bronze's columns through untouched, its timestamp included.
+# APPEND carries bronze's columns through; only __LAST_MODIFIED_DT becomes silver's own.
 expect_columns(df, COLUMNS)
 expect_rows(df, expected)
 
-# Every row came across exactly once.
-missing = spark.table(bronze()).exceptAll(df)
+# Every row came across exactly once. The write time is left out: each table has its own.
+own = "__LAST_MODIFIED_DT"
+missing = spark.table(bronze()).drop(own).exceptAll(df.drop(own))
 assert missing.isEmpty(), f"rows in bronze never reached silver: {missing.collect()}"
 
 # Promotion never re-stamps provenance: each Silver row still names the file it came from.

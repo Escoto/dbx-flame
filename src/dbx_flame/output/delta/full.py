@@ -14,8 +14,8 @@ from dbx_flame.output.mechanics import (
     latest_export,
     log_rows_written,
     merge_schema,
-    promote,
     require_creatable,
+    stamp_written,
 )
 from dbx_flame.output.table_config import DeltaTableConfig
 
@@ -70,12 +70,12 @@ class FullWriter:
                 return
             df = df.filter(F.col(EXPORT_DATE) == F.lit(latest))
 
-        promoted = promote(df)
+        stamped = stamp_written(df, ctx)
         (
-            promoted.write.format("delta")
+            stamped.write.format("delta")
             .mode("overwrite")
             .option("mergeSchema", merge_schema(ctx))
-            .options(**DeltaTableConfig(ctx).write_options(promoted))
+            .options(**DeltaTableConfig(ctx).write_options(stamped))
             .saveAsTable(ctx.target_table)
         )
         log_rows_written(ctx, event=Kpi.ROWS_OVERWRITTEN, source=_SOURCE)

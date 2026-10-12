@@ -43,7 +43,6 @@ def test_provenance_columns_added(spark, tmp_path, ctx):
 
     assert row["__SOURCE"].endswith("AGENTS_20240115103000.csv")
     assert row["__EXPORT_DATE"] == datetime(2024, 1, 15, 10, 30, 0)
-    assert row["__bronze_last_modified_dt"] is not None
 
 
 def test_source_is_the_file_path_unity_catalog_reports_prefixed_by_file(spark, tmp_path, ctx):
@@ -181,9 +180,8 @@ def test_provenance_survives_sanitization_as_the_metadata_contract(spark, tmp_pa
 
     result = sanitize_column_names(add_provenance(df, ctx), ctx)
 
-    assert "__SOURCE" in result.columns
-    assert "__BRONZE_LAST_MODIFIED_DT" in result.columns
-    assert "__EXPORT_DATE" in result.columns
+    # No write time: that is each table's own __LAST_MODIFIED_DT, set by the writer.
+    assert [c for c in result.columns if c.startswith("__")] == ["__SOURCE", "__EXPORT_DATE"]
 
 
 def test_rename_patterns_strip_a_suffix(spark):

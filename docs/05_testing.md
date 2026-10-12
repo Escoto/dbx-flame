@@ -44,7 +44,7 @@ Every one follows the same shape:
 | Test | Covers |
 |---|---|
 | `upsert_csv_test` | UPSERT (SCD Type 1): newer-wins, and a second round proving rows refresh in place instead of accumulating |
-| `scd2_csv_test` | SCD2 with a string anchor date, two successive loads, history chains and validity windows |
+| `scd2_csv_test` | SCD2 with a string anchor date, two successive loads, history chains and validity windows, and one `__LAST_MODIFIED_DT` per run that the second load moves only on the rows it wrote or closed |
 | `scd2_long_backlog_test` | SCD2 with three exports in one batch: one current row per key at its newest version, and keys the last export omits left untouched |
 | `full_csv_long_backlog_test` | FULL with three exports in one batch: the target holds only the newest export |
 | `full_txt_weekly_test` | Weekly pipe-delimited `.txt` snapshots into FULL over three scheduled runs: an unscheduled export arriving between runs lands in Bronze but never reaches Silver |

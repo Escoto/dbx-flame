@@ -9,14 +9,15 @@ The Output layer writes with one of five verbs. Verbs are **layer-agnostic**: an
 | `__EXPORT_DATE` | Pipeline | Source export timestamp (from the file name, per `source.snapshot_time_pattern`; the read time for a full or delta read) |
 | `__SOURCE` | Pipeline | How and where the record was read: `FILE:<path as Unity Catalog reports it>`, or `TABLE:<catalog>.<schema>.<table>@<read time>` for a full or delta read of a table we didn't create |
 | `__ANCHOR_DT` | Pipeline | `source.anchor_dt` as a timestamp (only when configured; for a delta read, the source column it followed) |
-| `__BRONZE_LAST_MODIFIED_DT` | Pipeline | Bronze ingest time (dropped on promotion) |
-| `__SILVER_LAST_MODIFIED_DT` | Output | Last framework write touching the record |
+| `__LAST_MODIFIED_DT` | Output | When the framework last wrote the row in this table: every verb's insert, and every update (UPSERT's match, SCD2's close, `snapshot_scope: full` expiry, the delete flag and close). One value per run, shared by all its micro-batches and statements |
 | `__START_DATE` | Output | Validity start of the history row |
 | `__END_DATE` | Output | Validity end (NULL = open) |
 | `__CURRENT_FLAG` | Output | `'Y'` current version / `'N'` historical |
 | `__DELETED_FLAG` | Output | `'Y'` soft-deleted entity |
 
 `__SOURCE` and `__EXPORT_DATE` are written once, where the data enters the framework, and never overwritten on promotion. Every Silver and Gold row therefore still names the exact file it came from and when it was exported: record-level traceability, which table lineage alone can't give. `__EXPORT_DATE` is the only source of truth for time; nothing parses it back out of `__SOURCE`.
+
+`__LAST_MODIFIED_DT` is not provenance: each table has its own, and a write replaces the value a row read from another framework table carried in. A row's `__SOURCE` and `__EXPORT_DATE` lead back to its Bronze row, whose own `__LAST_MODIFIED_DT` is the ingest time. It is metadata only: no verb or increment strategy reads it. A table we didn't create that already has a `__LAST_MODIFIED_DT` column has that value overwritten.
 
 Every table the framework writes also keeps `delta.dataSkippingStatsColumns` (set by `DeltaTableConfig`): Delta's default first 32 leaf columns, plus `__EXPORT_DATE` and `__ANCHOR_DT` wherever they sit, so filters on them can skip files. The property replaces Delta's default rather than adding to it, so it is recomputed after any write that evolves the schema. It also keeps the task's `output.tags` as Unity Catalog tags.
 
@@ -58,7 +59,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 - **Semantics**: Delta `MERGE` on the keys —
   - matched → update all columns (when `event_time` configured: only if source is newer);
   - not matched → insert.
-- No `__START_DATE/__END_DATE/__CURRENT_FLAG/__DELETED_FLAG` columns; `__SILVER_LAST_MODIFIED_DT` is still maintained.
+- No `__START_DATE/__END_DATE/__CURRENT_FLAG/__DELETED_FLAG` columns; `__LAST_MODIFIED_DT` is still maintained. A matched row the batch doesn't beat is not written and keeps its stamp.
 - Target absent → create via append.
 - **Increments**: checkpoint, `full_read` or `delta_read`. Re-reading every key is safe: newer wins, and an unchanged row is a no-op unless `output.event_time` is `__EXPORT_DATE` ([08_usage.md](08_usage.md) §2).
 
@@ -76,12 +77,12 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 
 1. Optional rename patterns; event-time/dedup-column normalization to timestamp. These normalized columns are held internally and never persisted, so the target schema stays the one the source defines.
 2. Dedup (on by default, before the policy gate): keep the latest row per key (`output.keys`), ordered by event time desc, ties broken by `__EXPORT_DATE` desc (the newer export wins). `dedup.columns` / `dedup.order_by` override either.
-3. Add `__SILVER_LAST_MODIFIED_DT`; drop `__BRONZE_LAST_MODIFIED_DT`.
+3. Stamp `__LAST_MODIFIED_DT` with the run's write time.
 4. Target absent → create with metadata init (`__START_DATE` = event_time or now, `__END_DATE` = NULL, flags Y/N).
 5. Target present:
    a. **Schema check**: a column the target lacks is refused (`unexpected_columns`) unless `schema_evolution` adds it. It runs before anything commits: steps b and c are separate commits, so an insert refused after the close would leave those keys with no current row.
    b. **Anti-filter**: drop source rows whose event_time ≤ the target's current row's event_time for the same keys (idempotent re-runs, late/duplicate files are no-ops).
-   c. **Close**: Delta merge — matched current, not-deleted rows with older event_time get `__END_DATE` = source event_time, `__CURRENT_FLAG` = 'N'.
+   c. **Close**: Delta merge — matched current, not-deleted rows with older event_time get `__END_DATE` = source event_time, `__CURRENT_FLAG` = 'N', `__LAST_MODIFIED_DT` = the run's write time.
    d. **Insert**: surviving source rows appended as new current rows.
 
 Note: SCD2 collapses to *latest per key within the processed increment* (step 2). If the increment contains v1→v2→v3 of the same key, Silver records the transition current-state → v3. A backlog split across several micro-batches leaves one history row per batch, and the current row is always the newest. When **every** intermediate version must appear in history, use COMPLETE_DELTA.
@@ -126,7 +127,7 @@ Every evolution is represented: A's full version chain with correct validity win
 ## 6. Modifier: `snapshot_scope` (COMPLETE_DELTA)
 
 - **`delta`** (default): the source sends only changes. Records absent from an increment are simply untouched.
-- **`full`**: the source sends the complete dataset — typically a monthly or on-demand export that supersedes whatever Silver holds, while history stays. Each full export supersedes every one before it, so of the pending exports only the **newest** is replayed; the older ones stay in Bronze, which is where export-by-export history lives. Deletes stamped after that export still apply. Before merging, **all** current rows in the target are expired (`__CURRENT_FLAG`='N', `__END_DATE` = the export's timestamp from its file name). The merge then re-inserts what the snapshot contains — anything absent stays expired. This is how implicit deletes work for full-snapshot sources.
+- **`full`**: the source sends the complete dataset — typically a monthly or on-demand export that supersedes whatever Silver holds, while history stays. Each full export supersedes every one before it, so of the pending exports only the **newest** is replayed; the older ones stay in Bronze, which is where export-by-export history lives. Deletes stamped after that export still apply. Before merging, **all** current rows in the target are expired (`__CURRENT_FLAG`='N', `__END_DATE` = the export's timestamp from its file name, `__LAST_MODIFIED_DT` = the run's write time). The merge then re-inserts what the snapshot contains — anything absent stays expired. This is how implicit deletes work for full-snapshot sources.
 - Closing at the export's time rather than the run's keeps windows honest however late the job runs: a dropped record closes at the latest moment it can have left the source, and with `output.event_time.column: __EXPORT_DATE` a re-asserted record reopens at exactly the instant its previous version closed. A per-record event time reopens it at its own, earlier date instead, and the two windows overlap.
 - A full export must be read whole, so `source.increment_anchor` is rejected under `full` at Start: the anchor would hand the merge only the records that moved, and every record the export still carries unchanged would be expired.
 - Re-run with no new data: nothing is expired and nothing merged — the watermark and the anti-filter together make the whole run a no-op. Re-running a job must never change the table.
@@ -148,8 +149,8 @@ Target has current rows `A, B, C`. A `snapshot_scope: full` load arrives contain
 
 A second Delta table (`source.deletes_table`) carrying delete records, with its own `output.deletes.keys` and `output.deletes.event_time.*` — all three are required together. Applied after the updates of the same snapshot. Soft-delete semantics, via a double merge:
 
-1. every key match in the target → `__DELETED_FLAG` = 'Y' (all history rows of the entity are flagged);
-2. the open current row (`__END_DATE IS NULL AND __CURRENT_FLAG='Y'`) → `__END_DATE` = delete event time, `__CURRENT_FLAG` = 'N', `__SILVER_LAST_MODIFIED_DT` = now.
+1. every key match in the target → `__DELETED_FLAG` = 'Y' (all history rows of the entity are flagged), `__LAST_MODIFIED_DT` = the run's write time;
+2. the open current row (`__END_DATE IS NULL AND __CURRENT_FLAG='Y'`) → `__END_DATE` = delete event time, `__CURRENT_FLAG` = 'N', `__LAST_MODIFIED_DT` = the run's write time.
 
 No physical deletes, ever — history is preserved.
 

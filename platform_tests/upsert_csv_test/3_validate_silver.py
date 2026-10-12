@@ -24,7 +24,7 @@ spark = SparkSession.builder.getOrCreate()
 assert spark.catalog.tableExists(qualified(SILVER_TABLE)), "silver table was not created"
 df = spark.table(qualified(SILVER_TABLE))
 
-# Promotion drops the bronze timestamp and stamps its own.
+# Promotion replaces bronze's __LAST_MODIFIED_DT with its own.
 expect_columns(df, SILVER_COLUMNS)
 
 # Five distinct keys across the two exports: 1.0 appeared twice.
@@ -38,7 +38,7 @@ assert (
     survivor["SOURCE_SYSTEM"] == "Source_B"
 ), f"expected the newer export to win, got {survivor['SOURCE_SYSTEM']}"
 
-assert df.filter(df["__SILVER_LAST_MODIFIED_DT"].isNull()).count() == 0, "write time missing"
+assert df.filter(df["__LAST_MODIFIED_DT"].isNull()).count() == 0, "write time missing"
 
 # The framework keeps output.tags on its target.
 tags = {

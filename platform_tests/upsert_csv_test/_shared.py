@@ -23,7 +23,7 @@ BRONZE_COLUMNS = {
     "NAME",
     "SOURCE_SYSTEM",
     "CREATED_DATE",
-    "__BRONZE_LAST_MODIFIED_DT",
+    "__LAST_MODIFIED_DT",
     "__SOURCE",
     "__EXPORT_DATE",
 }
@@ -35,7 +35,7 @@ SILVER_COLUMNS = {
     "CREATED_DATE",
     "__SOURCE",
     "__EXPORT_DATE",
-    "__SILVER_LAST_MODIFIED_DT",
+    "__LAST_MODIFIED_DT",
 }
 
 

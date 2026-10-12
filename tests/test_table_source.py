@@ -349,11 +349,11 @@ def test_a_full_read_stamps_every_row_as_one_snapshot_taken_at_the_read_time(spa
     _foreign(spark, database, "UPDATES", [("1", "alice"), ("2", "bob")])
     ctx = _context(spark, database, IncrementStrategy.FULL_READ)
 
-    rows = TableSource().read(ctx).collect()
+    result = TableSource().read(ctx)
 
-    for row in rows:
+    assert [c for c in result.columns if c.startswith("__")] == ["__SOURCE", "__EXPORT_DATE"]
+    for row in result.collect():
         assert row["__EXPORT_DATE"] == READ_TIME
-        assert row["__BRONZE_LAST_MODIFIED_DT"] == READ_TIME
         assert row["__SOURCE"] == f"TABLE:{database}.UPDATES@{READ_TIME.isoformat()}"
 
 

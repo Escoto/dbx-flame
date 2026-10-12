@@ -25,7 +25,7 @@ HEADER = ("SUPPLIER_ID", "SUPPLIER_NAME", "COUNTRY", "STATUS")
 BUSINESS_COLUMNS = set(HEADER)
 
 BRONZE_COLUMNS = BUSINESS_COLUMNS | {
-    "__BRONZE_LAST_MODIFIED_DT",
+    "__LAST_MODIFIED_DT",
     "__SOURCE",
     "__EXPORT_DATE",
 }
@@ -33,7 +33,7 @@ BRONZE_COLUMNS = BUSINESS_COLUMNS | {
 SILVER_COLUMNS = BUSINESS_COLUMNS | {
     "__SOURCE",
     "__EXPORT_DATE",
-    "__SILVER_LAST_MODIFIED_DT",
+    "__LAST_MODIFIED_DT",
 }
 
 # The commas in the names only survive as one column if the file is read as pipe-delimited.

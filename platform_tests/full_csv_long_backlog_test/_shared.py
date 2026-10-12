@@ -46,7 +46,7 @@ BUSINESS_COLUMNS = {
 }
 
 BRONZE_COLUMNS = BUSINESS_COLUMNS | {
-    "__BRONZE_LAST_MODIFIED_DT",
+    "__LAST_MODIFIED_DT",
     "__SOURCE",
     "__EXPORT_DATE",
 }
@@ -54,7 +54,7 @@ BRONZE_COLUMNS = BUSINESS_COLUMNS | {
 SILVER_COLUMNS = BUSINESS_COLUMNS | {
     "__SOURCE",
     "__EXPORT_DATE",
-    "__SILVER_LAST_MODIFIED_DT",
+    "__LAST_MODIFIED_DT",
 }
 
 # The three exports as committed under sample_data/. The 14-digit stamp in each name
