@@ -23,8 +23,9 @@ if TYPE_CHECKING:
     from dbx_flame.context.context import Context
     from dbx_flame.observability.kpi import Kpi
 
-BRONZE_TIMESTAMP = "__BRONZE_LAST_MODIFIED_DT"
-SILVER_TIMESTAMP = "__SILVER_LAST_MODIFIED_DT"
+# When the framework last wrote the row in this table. Metadata only: no algorithm reads it,
+# and provenance lives in __SOURCE and __EXPORT_DATE.
+LAST_MODIFIED = "__LAST_MODIFIED_DT"
 EXPORT_DATE = "__EXPORT_DATE"
 
 # History columns, written by SCD2 and COMPLETE_DELTA only.
@@ -250,9 +251,14 @@ def latest_export(df: DataFrame) -> datetime | None:
     return df.agg(F.max(EXPORT_DATE)).collect()[0][0]
 
 
-def promote(df: DataFrame) -> DataFrame:
-    """Stamp the framework's write time and drop the previous layer's."""
-    return df.withColumn(SILVER_TIMESTAMP, F.current_timestamp()).drop(BRONZE_TIMESTAMP)
+def stamp_written(df: DataFrame, ctx: Context) -> DataFrame:
+    """Stamp the run's write time, replacing the one a row read from our own table carries."""
+    return df.withColumn(LAST_MODIFIED, written(ctx))
+
+
+def written(ctx: Context) -> Column:
+    """The run's write time, for an update's set clause."""
+    return F.lit(ctx.write_time)
 
 
 def key_condition(keys: list[str], source: str, target: str) -> Column:

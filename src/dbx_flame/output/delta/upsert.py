@@ -16,8 +16,8 @@ from dbx_flame.output.mechanics import (
     merge_schema,
     require_no_new_columns,
     schema_auto_merge,
-    promote,
     require_creatable,
+    stamp_written,
 )
 from dbx_flame.output.table_config import DeltaTableConfig
 
@@ -45,8 +45,9 @@ class UpsertWriter:
     )
 
     def write(self, df: DataFrame, ctx: Context) -> None:
-        prepared = promote(df)
-        require_creatable(prepared, ctx)
+        # Checked before stamping: the stamp is a column, and would hide an empty schema.
+        require_creatable(df, ctx)
+        prepared = stamp_written(df, ctx)
 
         if not ctx.spark.catalog.tableExists(ctx.target_table):
             self._create(prepared, ctx)

@@ -16,6 +16,7 @@ from _shared import (  # noqa: E402
     FIRST_EVENT,
     SECOND_EVENT,
     SILVER_TABLE,
+    expect_one_stamp,
     expect_rows,
     expect_stats_columns,
     expect_window,
@@ -49,6 +50,13 @@ for key in ("2", "3"):
 # New keys open their own history.
 for key in ("4", "5"):
     expect_window(version(silver, key, "Source_B"), start=SECOND_EVENT, end=None, current="Y")
+
+# Round 2 stamped every row it wrote, the closed ID 1 version included, with one later
+# write time; the keys it never mentioned keep round 1's.
+untouched = silver.filter(silver["ID"].isin("2", "3"))
+written = silver.subtract(untouched)
+first_run, second_run = expect_one_stamp(untouched), expect_one_stamp(written)
+assert second_run > first_run, f"round 2 stamped {second_run}, not after round 1's {first_run}"
 
 # Soft deletion is a deletes-feed concern; nothing here should be flagged.
 assert silver.filter(silver["__DELETED_FLAG"] == "Y").count() == 0, "nothing was deleted"

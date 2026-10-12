@@ -50,3 +50,7 @@ class Context:
     # and deletes reads share one snapshot, and every action re-evaluating a frame gets the
     # same value, which current_timestamp() would not guarantee.
     read_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # The __LAST_MODIFIED_DT of every row this run writes or updates, across all its
+    # micro-batches and statements, so one run's changes share a single, queryable value.
+    write_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

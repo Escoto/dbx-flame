@@ -42,7 +42,7 @@ spark = SparkSession.builder.getOrCreate()
 assert spark.catalog.tableExists(qualified(SILVER_TABLE)), "silver table was not created"
 df = spark.table(qualified(SILVER_TABLE))
 
-# Promotion drops the bronze timestamp and adds the four history columns. The types
+# Promotion restamps __LAST_MODIFIED_DT and adds the four history columns. The types
 # bronze was given survive the merge; nothing was re-cast or widened back to string.
 expect_columns(df, SILVER_COLUMNS)
 expect_types(df)

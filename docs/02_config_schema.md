@@ -118,7 +118,7 @@ Notes:
   The Start layer resolves the result onto the `Context`.
 - `full_read` and `delta_read` are for a table we didn't create (a federated one, say),
   which has no stream to resume and no `__EXPORT_DATE` to follow. Each read is stamped once:
-  `__EXPORT_DATE` and `__BRONZE_LAST_MODIFIED_DT` are the run's read time, and `__SOURCE`
+  `__EXPORT_DATE` is the run's read time, and `__SOURCE`
   is `TABLE:<catalog>.<schema>.<table>@<read time>`. Which to choose, and their limits:
   [08_usage.md](08_usage.md) §3.
   - `full_read` reads the whole table as one batch, and every verb accepts it. A deletes

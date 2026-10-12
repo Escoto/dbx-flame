@@ -11,6 +11,7 @@ from _shared import (  # noqa: E402
     SILVER_COLUMNS,
     SILVER_TABLE,
     expect_columns,
+    expect_one_stamp,
     expect_rows,
     expect_window,
     qualified,
@@ -23,7 +24,7 @@ spark = SparkSession.builder.getOrCreate()
 assert spark.catalog.tableExists(qualified(SILVER_TABLE)), "silver table was not created"
 df = spark.table(qualified(SILVER_TABLE))
 
-# Promotion drops the bronze timestamp; SCD2 adds the four history columns.
+# Promotion restamps __LAST_MODIFIED_DT; SCD2 adds the four history columns.
 expect_columns(df, SILVER_COLUMNS)
 
 expect_rows(df, 3)
@@ -35,6 +36,6 @@ assert df.filter(df["__END_DATE"].isNotNull()).count() == 0, "nothing should be 
 for key in ("1", "2", "3"):
     expect_window(version(df, key, "Source_A"), start=FIRST_EVENT, end=None, current="Y")
 
-assert df.filter(df["__SILVER_LAST_MODIFIED_DT"].isNull()).count() == 0, "write time missing"
+expect_one_stamp(df)
 
 print("silver validated")

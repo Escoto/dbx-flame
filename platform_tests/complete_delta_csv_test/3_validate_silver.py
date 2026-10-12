@@ -31,7 +31,7 @@ spark = SparkSession.builder.getOrCreate()
 assert spark.catalog.tableExists(qualified(SILVER_TABLE)), "silver table was not created"
 df = spark.table(qualified(SILVER_TABLE))
 
-# Promotion drops the bronze timestamp; the history columns are added. Nothing
+# Promotion restamps __LAST_MODIFIED_DT; the history columns are added. Nothing
 # internal to the replay — no snapshot id — is persisted.
 expect_columns(df, SILVER_COLUMNS)
 
@@ -46,6 +46,6 @@ expect_window(version(df, "A", "v3"), start=EVENT_3, end=None, current="Y")
 # B was written by the first snapshot and never mentioned again — still open.
 expect_window(version(df, "B", "v1"), start=EVENT_1, end=None, current="Y")
 
-assert df.filter(df["__SILVER_LAST_MODIFIED_DT"].isNull()).count() == 0, "write time missing"
+assert df.filter(df["__LAST_MODIFIED_DT"].isNull()).count() == 0, "write time missing"
 
 print("silver replay validated")

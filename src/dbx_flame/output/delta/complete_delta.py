@@ -25,10 +25,11 @@ from dbx_flame.output.mechanics import (
     END_DATE,
     EXPIRED,
     EXPORT_DATE,
-    SILVER_TIMESTAMP,
+    LAST_MODIFIED,
     as_timestamp,
     require_valid_times,
     key_condition,
+    written,
 )
 from dbx_flame.pipelines.table_source import TableSource
 from dbx_flame.policies.runner import PolicyRunner
@@ -172,7 +173,7 @@ def _apply_deletes(df: DataFrame, ctx: Context) -> None:
 
     target = DeltaTable.forName(ctx.spark, ctx.target_table)
     target.alias("t").merge(df.alias("s"), matched).whenMatchedUpdate(
-        set={f"`{DELETED_FLAG}`": F.lit(DELETED)}
+        set={f"`{DELETED_FLAG}`": F.lit(DELETED), f"`{LAST_MODIFIED}`": written(ctx)}
     ).execute()
 
     still_open = (F.col(f"t.`{END_DATE}`").isNull()) & (F.col(f"t.`{CURRENT_FLAG}`") == CURRENT)
@@ -181,7 +182,7 @@ def _apply_deletes(df: DataFrame, ctx: Context) -> None:
         set={
             f"`{END_DATE}`": _delete_time(ctx, "s"),
             f"`{CURRENT_FLAG}`": F.lit(EXPIRED),
-            f"`{SILVER_TIMESTAMP}`": F.current_timestamp(),
+            f"`{LAST_MODIFIED}`": written(ctx),
         },
     ).execute()
 

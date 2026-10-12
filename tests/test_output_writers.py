@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -81,6 +82,29 @@ def _people(spark, rows):
     return spark.createDataFrame(rows, PEOPLE)
 
 
+FIRST_RUN = datetime(2030, 1, 1)
+SECOND_RUN = datetime(2030, 1, 2)
+
+
+def _stamps(spark, database):
+    """The target as (id, name, __LAST_MODIFIED_DT) tuples."""
+    rows = spark.table(f"`{database}`.`TARGET`").collect()
+    return {(row["ID"], row["NAME"], row["__LAST_MODIFIED_DT"]) for row in rows}
+
+
+@pytest.mark.parametrize("verb, writer", [(Verb.APPEND, AppendWriter), (Verb.FULL, FullWriter)])
+def test_a_write_replaces_the_upstream_stamp_with_its_own(spark, database, verb, writer):
+    """A row read from a table we wrote arrives with that table's stamp, not this one's."""
+    ctx = replace(_ctx(spark, database, verb=verb), write_time=SECOND_RUN)
+    upstream = _people(spark, [("1", "alice", "x")]).withColumn(
+        "__LAST_MODIFIED_DT", F.lit(FIRST_RUN)
+    )
+
+    writer().write(upstream, ctx)
+
+    assert _stamps(spark, database) == {("1", "alice", SECOND_RUN)}
+
+
 # --- APPEND ----------------------------------------------------------------
 
 
@@ -132,6 +156,14 @@ def test_a_columnless_batch_cannot_create_a_target(spark, database):
         AppendWriter().write(spark.range(0).drop("id"), ctx)
 
 
+def test_the_write_stamp_does_not_hide_a_columnless_batch(spark, database):
+    """UPSERT stamps before it writes; checked after, the batch would always have a column."""
+    ctx = _upsert_ctx(spark, database)
+
+    with pytest.raises(PlatformPolicyViolation, match="no columns"):
+        UpsertWriter().write(spark.range(0).drop("id"), ctx)
+
+
 # --- FULL ------------------------------------------------------------------
 
 
@@ -162,19 +194,6 @@ EXPORTS = f"{PEOPLE}, __EXPORT_DATE timestamp"
 def _exports(spark, rows):
     """People rows tagged with the day of the export they arrived in."""
     return spark.createDataFrame([(*row[:3], datetime(2024, 1, row[3])) for row in rows], EXPORTS)
-
-
-def test_full_stamps_the_write_time_and_drops_the_bronze_one(spark, database):
-    ctx = _ctx(spark, database, verb=Verb.FULL)
-    bronze = _people(spark, [("1", "alice", "x")]).withColumn(
-        "__BRONZE_LAST_MODIFIED_DT", F.current_timestamp()
-    )
-
-    FullWriter().write(bronze, ctx)
-
-    target = spark.table(f"`{database}`.`TARGET`")
-    assert "__BRONZE_LAST_MODIFIED_DT" not in target.columns
-    assert isinstance(target.collect()[0]["__SILVER_LAST_MODIFIED_DT"], datetime)
 
 
 def test_full_keeps_only_the_newest_export_of_a_backlog(spark, database):
@@ -299,13 +318,25 @@ def test_upsert_dedups_by_keys_and_event_time_by_default(spark, database):
     assert _rows(spark, database) == {("1", "new")}
 
 
-def test_upsert_stamps_the_write_time(spark, database):
+def test_upsert_stamps_only_the_rows_it_writes(spark, database):
+    """A matched row the batch doesn't beat is not written, so it keeps its stamp."""
     ctx = _upsert_ctx(spark, database)
+    writer = UpsertWriter()
+    first = [("1", "alice", "2024-06-01"), ("2", "bob", "2024-01-01")]
+    writer.write(_people(spark, first), replace(ctx, write_time=FIRST_RUN))
 
-    UpsertWriter().write(_people(spark, [("1", "alice", "2024-01-01")]), ctx)
+    second = [
+        ("1", "stale", "2024-01-01"),
+        ("2", "BOB", "2024-06-01"),
+        ("3", "carol", "2024-06-01"),
+    ]
+    writer.write(_people(spark, second), replace(ctx, write_time=SECOND_RUN))
 
-    row = spark.table(f"`{database}`.`TARGET`").collect()[0]
-    assert isinstance(row["__SILVER_LAST_MODIFIED_DT"], datetime)
+    assert _stamps(spark, database) == {
+        ("1", "alice", FIRST_RUN),
+        ("2", "BOB", SECOND_RUN),
+        ("3", "carol", SECOND_RUN),
+    }
 
 
 # --- schema evolution: one knob, the same meaning on every verb -------------

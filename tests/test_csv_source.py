@@ -140,7 +140,6 @@ def test_a_csv_fixture_flows_to_a_typed_dataframe(spark, mock_spark, tmp_path):
         "AGENT_ID",
         "FULL_NAME",
         "AGE",
-        "__BRONZE_LAST_MODIFIED_DT",
         "__SOURCE",
         "__EXPORT_DATE",
     ]

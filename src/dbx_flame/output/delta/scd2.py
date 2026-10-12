@@ -26,10 +26,12 @@ from dbx_flame.output.mechanics import (
     key_condition,
     log_rows_written,
     merge_schema,
+    LAST_MODIFIED,
     open_history,
-    promote,
     require_creatable,
     require_no_new_columns,
+    stamp_written,
+    written,
 )
 from dbx_flame.output.table_config import DeltaTableConfig
 
@@ -85,8 +87,9 @@ def merge_history(df: DataFrame, ctx: Context, snapshot: Optional[datetime] = No
     `snapshot` is the export being merged; snapshot_scope=full expires at it. The
     pipeline has already deduplicated df.
     """
-    prepared = promote(df)
-    require_creatable(prepared, ctx)
+    # Checked before stamping: the stamp is a column, and would hide an empty schema.
+    require_creatable(df, ctx)
+    prepared = stamp_written(df, ctx)
 
     if not ctx.spark.catalog.tableExists(ctx.target_table):
         _create(prepared, ctx)
@@ -150,6 +153,7 @@ def _expire_all_current(ctx: Context, snapshot: datetime) -> None:
         set={
             f"`{CURRENT_FLAG}`": F.lit(EXPIRED),
             f"`{END_DATE}`": F.lit(snapshot),
+            f"`{LAST_MODIFIED}`": written(ctx),
         },
     )
 
@@ -181,6 +185,7 @@ def _close_superseded(df: DataFrame, ctx: Context) -> None:
         set={
             f"`{END_DATE}`": event_time(ctx, "s"),
             f"`{CURRENT_FLAG}`": F.lit(EXPIRED),
+            f"`{LAST_MODIFIED}`": written(ctx),
         },
     ).execute()
 

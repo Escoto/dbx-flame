@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, ClassVar
 from dbx_flame.context.config import IncrementStrategy, Verb
 from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
-from dbx_flame.output.mechanics import log_rows_written, merge_schema, require_creatable
+from dbx_flame.output.mechanics import (
+    log_rows_written,
+    merge_schema,
+    require_creatable,
+    stamp_written,
+)
 from dbx_flame.output.table_config import DeltaTableConfig
 
 if TYPE_CHECKING:
@@ -33,11 +38,12 @@ class AppendWriter:
     def write(self, df: DataFrame, ctx: Context) -> None:
         require_creatable(df, ctx)
 
+        stamped = stamp_written(df, ctx)
         (
-            df.write.format("delta")
+            stamped.write.format("delta")
             .mode("append")
             .option("mergeSchema", merge_schema(ctx))
-            .options(**DeltaTableConfig(ctx).write_options(df))
+            .options(**DeltaTableConfig(ctx).write_options(stamped))
             .saveAsTable(ctx.target_table)
         )
         log_rows_written(ctx, event=Kpi.ROWS_APPENDED, source=_SOURCE)

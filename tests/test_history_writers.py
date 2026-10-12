@@ -126,6 +126,25 @@ def _subjects(spark, rows):
     return spark.createDataFrame(rows, SUBJECTS)
 
 
+FIRST_RUN = datetime(2030, 1, 1)
+SECOND_RUN = datetime(2030, 1, 2)
+
+
+def _stamps(spark, database):
+    """The target as (id, payload, current, deleted, __LAST_MODIFIED_DT) tuples."""
+    rows = spark.table(f"`{database}`.`TARGET`").collect()
+    return {
+        (
+            row["ID"],
+            row["PAYLOAD"],
+            row["__CURRENT_FLAG"],
+            row["__DELETED_FLAG"],
+            row["__LAST_MODIFIED_DT"],
+        )
+        for row in rows
+    }
+
+
 # --- SCD2 ------------------------------------------------------------------
 
 
@@ -267,6 +286,23 @@ def test_scd2_adds_a_new_column_when_evolution_is_on(spark, database):
     assert "NICKNAME" in spark.table(f"`{database}`.`TARGET`").columns
 
 
+def test_scd2_stamps_the_version_it_closes_and_leaves_the_rest(spark, database):
+    """An incremental reader keyed on the stamp must see a close, not only an insert."""
+    ctx = _ctx(spark, database)
+    writer = Scd2Writer()
+    first = [("A", "v1", "2026-01-01 00:00:00"), ("B", "v1", "2026-01-01 00:00:00")]
+    writer.write(_subjects(spark, first), replace(ctx, write_time=FIRST_RUN))
+
+    second = [("A", "v2", "2026-01-02 00:00:00")]
+    writer.write(_subjects(spark, second), replace(ctx, write_time=SECOND_RUN))
+
+    assert _stamps(spark, database) == {
+        ("A", "v1", "N", "N", SECOND_RUN),
+        ("A", "v2", "Y", "N", SECOND_RUN),
+        ("B", "v1", "Y", "N", FIRST_RUN),
+    }
+
+
 # --- COMPLETE_DELTA --------------------------------------------------------
 
 
@@ -368,6 +404,57 @@ def test_complete_delta_full_scope_expires_records_a_snapshot_no_longer_carries(
         ("A", "v1", _at(1), _at(2, 12), "N", "N"),
         ("A", "v2", _at(2), None, "Y", "N"),
         ("C", "v1", _at(1), _at(2, 12), "N", "N"),
+    }
+
+
+def test_complete_delta_full_scope_stamps_the_rows_it_expires(spark, database):
+    ctx = _complete_delta_ctx(spark, database, output={"snapshot_scope": SnapshotScope.FULL})
+    writer = CompleteDeltaWriter()
+    first = [("A", "v1", "2026-01-01 00:00:00", 1), ("C", "v1", "2026-01-01 00:00:00", 1)]
+    writer.write(_snapshot_subjects(spark, first), replace(ctx, write_time=FIRST_RUN))
+
+    second = [("A", "v2", "2026-01-02 00:00:00", 2)]
+    writer.write(_snapshot_subjects(spark, second), replace(ctx, write_time=SECOND_RUN))
+
+    assert _stamps(spark, database) == {
+        ("A", "v1", "N", "N", SECOND_RUN),
+        ("A", "v2", "Y", "N", SECOND_RUN),
+        ("C", "v1", "N", "N", SECOND_RUN),
+    }
+
+
+def test_complete_delta_stamps_every_version_a_delete_flags(spark, database):
+    """The flag marks B's closed v1 too, so that row changes and is stamped as well."""
+    ctx = _complete_delta_ctx(
+        spark,
+        database,
+        deletes_table="DELETIONS",
+        output={
+            "deletes": DeletesConfig(
+                keys=["ID"],
+                event_time=EventTimeConfig(column="DELETEDTIME", format=EVENT_FORMAT),
+            )
+        },
+    )
+    deletions = f"`{database}`.`DELETIONS`"
+    spark.createDataFrame([], DELETIONS).write.format("delta").saveAsTable(deletions)
+    writer = CompleteDeltaWriter()
+    updates = [
+        ("A", "v1", "2026-01-01 00:00:00", 1),
+        ("B", "v1", "2026-01-01 00:00:00", 1),
+        ("B", "v2", "2026-01-02 00:00:00", 2),
+    ]
+    writer.write(_snapshot_subjects(spark, updates), replace(ctx, write_time=FIRST_RUN))
+
+    spark.createDataFrame(
+        [("B", "2026-01-03 00:00:00", _file(3), _at(3, 12))], DELETIONS
+    ).write.format("delta").mode("append").saveAsTable(deletions)
+    writer.write(_snapshot_subjects(spark, []), replace(ctx, write_time=SECOND_RUN))
+
+    assert _stamps(spark, database) == {
+        ("A", "v1", "Y", "N", FIRST_RUN),
+        ("B", "v1", "N", "Y", SECOND_RUN),
+        ("B", "v2", "N", "Y", SECOND_RUN),
     }
 
 
