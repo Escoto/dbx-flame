@@ -24,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 dbx-flame = "dbx_flame.entrypoints.run:main"
+dbx-flame-export = "dbx_flame.entrypoints.export:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0"]

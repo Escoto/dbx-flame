@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import enum
 import types
-from typing import TYPE_CHECKING, Any, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Any, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, ValidationError
 
-from dbx_flame.context.config import IncrementStrategy, Origin, SnapshotScope, TaskConfig
+from dbx_flame.context.config import (
+    IncrementStrategy,
+    Origin,
+    SnapshotScope,
+    TaskConfig,
+    in_volume_of,
+)
 from dbx_flame.context.context import Context, RunIdentity
 from dbx_flame.observability.audit_logger import AuditLogger
 from dbx_flame.output.registry import VERB_REQUIREMENTS
@@ -22,6 +28,8 @@ if TYPE_CHECKING:
     from dbx_flame.output.base import Requirements
 
 _RETIRED_PARAMS = {"source_type", "update_columns"}
+
+_Config = TypeVar("_Config", bound=BaseModel)
 
 
 class ConfigValidationError(Exception):
@@ -140,8 +148,11 @@ def _collect_unknown_keys(
     return errors
 
 
-def load_config(params: dict[str, str]) -> TaskConfig:
-    """Parse flat key=value task parameters into a validated TaskConfig.
+def load_config(
+    params: dict[str, str],
+    model: type[_Config] = TaskConfig,  # type: ignore[assignment]
+) -> _Config:
+    """Parse flat key=value task parameters into a validated model, TaskConfig by default.
 
     Dotted keys are split into nested dicts. Coercion rules:
     - Booleans: true/false (any casing); any other value is an error
@@ -165,18 +176,19 @@ def load_config(params: dict[str, str]) -> TaskConfig:
     nested, conflict_errors = _unflatten(clean_params)
     errors.extend(conflict_errors)
 
-    errors.extend(_collect_unknown_keys(nested, TaskConfig))
+    errors.extend(_collect_unknown_keys(nested, model))
 
-    coerced, coercion_errors = _coerce_values(nested, TaskConfig)
+    coerced, coercion_errors = _coerce_values(nested, model)
     errors.extend(coercion_errors)
 
     try:
-        config = TaskConfig(**coerced)
+        config = model(**coerced)
     except ValidationError as e:
         for err in e.errors():
             loc = ".".join(str(x) for x in err["loc"])
             msg = err["msg"].removeprefix("Value error, ")
-            errors.append(f"{loc}: {msg}")
+            # A model-level rule has no location; its message names the parameter.
+            errors.append(f"{loc}: {msg}" if loc else msg)
         config = None
 
     if errors:
@@ -339,8 +351,7 @@ def _metadata_errors(config: TaskConfig) -> list[str]:
     never keeps its progress there.
     """
     consumer = _env_catalog(config.catalog, config.env)
-    parts = config.metadata_path.strip("/").split("/")
-    if len(parts) > 1 and parts[0] == "Volumes" and parts[1].lower() == consumer.lower():
+    if in_volume_of(consumer, config.metadata_path):
         return []
     return [
         f"metadata_path must be a Volume in the target's catalog (/Volumes/{consumer}/...), "
