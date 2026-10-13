@@ -43,7 +43,7 @@ Context → Pipeline/Typing → Writers → Policies → remaining origins.
 
 ## P3 — Output verbs: APPEND, FULL, UPSERT
 
-- `output/base.py` (Writer protocol + `Requirements`), `delta/append.py`, `delta/full.py` (empty-skip), `delta/upsert.py` (SCD1, newer-wins), table-creation paths, `mergeSchema` behavior, `files.py` interface stub.
+- `output/base.py` (Writer protocol + `Requirements`), `delta/append.py`, `delta/full.py` (empty-skip), `delta/upsert.py` (SCD1, newer-wins), table-creation paths, `mergeSchema` behavior.
 - End-to-end wiring in `run.py`: the first complete flows (CSV→Bronze APPEND).
 
 **Exit**: Inbound→Bronze works end to end on a Databricks workspace; UPSERT unit-tested against in-memory Delta.
@@ -79,9 +79,8 @@ end to end by `complete_delta_json_full_test` (two feeds, two Bronze tables, one
 
 ## Out of scope (explicitly deferred)
 
-- File/export writer implementations (`files.py` stays an interface).
 - Quarantining invalid rows to a second target; the gate refuses the batch whole.
-- Source→Inbound retrieval, governance views, export workflows.
+- Source→Inbound retrieval and governance views. Export is planned in gh #40.
 - A generic `flatten_nested` pre-processor: exploding nested arrays multiplies rows and
   denormalizes the data, so flattening a payload is left to its consumer.
 

@@ -1,1 +1,1 @@
-"""Layer 5 — Output: verb-based writers (Delta tables and files)."""
+"""Layer 5 — Output: verb-based writers to Delta tables."""

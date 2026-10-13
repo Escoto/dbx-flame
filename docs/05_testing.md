@@ -105,4 +105,3 @@ changes its data has to change its expectations in the same file.
 ## 3. What is explicitly NOT tested
 
 - Databricks platform behavior — Auto Loader internals, the Delta merge engine.
-- File-writer implementations: `files.py` is an interface, and its tests arrive with it.

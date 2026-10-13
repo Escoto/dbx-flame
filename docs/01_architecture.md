@@ -34,8 +34,7 @@ dbx_flame/
 │   │   │   ├── upsert.py            #   UPSERT (SCD1)
 │   │   │   ├── scd2.py              #   SCD2 merge engine (close-and-insert)
 │   │   │   └── complete_delta.py    #   snapshot replay orchestration on top of scd2.py
-│   │   ├── table_config.py          #   DeltaTableConfig: table-level settings (statistics columns)
-│   │   └── files.py                 #   FileWriter — interface only (implementation deferred)
+│   │   └── table_config.py          #   DeltaTableConfig: table-level settings (statistics columns)
 │   ├── observability/
 │   │   ├── audit_logger.py          #   buffered logger → `monitoring_{env}`.audit.logs
 │   │   ├── kpi.py                   #   KPI event helpers
@@ -168,7 +167,7 @@ class Writer(Protocol):
 
 - Each verb **declares** its requirements; the Start layer validates the configured combination against them (this is how verbs stay layer-agnostic while misconfiguration fails fast, e.g. "SCD2 requires `output.keys` and `output.event_time.column`").
 - `DeltaWriter` implementations: `append`, `full`, `upsert`, `scd2`, `complete_delta` — full semantics in [03_write_verbs.md](03_write_verbs.md). `complete_delta` composes the `scd2` merge engine inside its snapshot loop rather than duplicating it.
-- `FileWriter` is **specified** (same protocol, target = Volume path + format) and stubbed with `NotImplementedError` — implementation is future work (export workflows), per the agreed scope.
+- Writing files is not a verb. Exporting Gold objects as files is its own task with its own entry point (planned in gh #40): it reads many objects per run, and none of the ingest flow (typing, policies, dedup, provenance) applies to it.
 - Shared mechanics: dedup block (window/keep-latest), event-time normalization (string → timestamp with format — held internally and never persisted), table-creation path with SCD2 metadata initialization, Delta `mergeSchema` behavior.
 
 ## 4. Observability
@@ -198,7 +197,6 @@ class Writer(Protocol):
 | a new DQ rule | an entry in the DQX ruleset YAML | any Python at all |
 | quarantine instead of a gate | the runner's handling of DQX's result columns | rules, writers, config |
 | a new write verb | one `Writer` + `Requirements` declaration | Start/Pipeline/Typing |
-| file export targets | implement `FileWriter` | Delta writers |
 
 ## 7. Deployment model
 
