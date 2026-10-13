@@ -47,7 +47,7 @@ flowchart LR
 | 2 | **Pipeline** | `dbx_flame.pipelines` | Produce a DataFrame from the configured origin: CSV, JSON, SAS file (via Auto Loader) or a Unity Catalog table. Apply named pre-processors, provenance columns, column-name sanitization. |
 | 3 | **Typing** | `dbx_flame.typecast` | Apply the casts the config declares — type plus optional date/timestamp format — and validate that none of them silently produced NULL. Columns the config does not name keep the type they arrived with. |
 | 4 | **Policies** | `dbx_flame.policies` | Gate the dataset on a [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset: `warn` is logged and passes, `error` refuses the batch. Results go to the audit log. |
-| 5 | **Output** | `dbx_flame.output` | Write the dataset with a verb: APPEND, FULL, UPSERT, SCD2, COMPLETE_DELTA — to Delta tables (implemented) or files (interface specified). |
+| 5 | **Output** | `dbx_flame.output` | Write the dataset with a verb: APPEND, FULL, UPSERT, SCD2, COMPLETE_DELTA — to Delta tables. |
 
 Cross-cutting: `dbx_flame.observability` (audit/KPI logging) and `dbx_flame.entrypoints` (wheel entry points).
 
@@ -78,7 +78,7 @@ Gold is SQL, not a verb. The framework's job ends at Silver.
 | **Delta read** | `source.increment_strategy: delta_read`: only the rows of a table we didn't create that changed since the last run, found through the source column named by `source.anchor_dt`. Stamped like a full read, but never a complete snapshot: deletes are invisible. |
 | **Silver metadata contract** | The framework-managed columns: `__SOURCE`, `__LAST_MODIFIED_DT`, `__START_DATE`, `__END_DATE`, `__CURRENT_FLAG` (`Y`/`N`), `__DELETED_FLAG` (`Y`/`N`), `__EXPORT_DATE`, and `__ANCHOR_DT` when `source.anchor_dt` is set. |
 | **Audit log contract** | Every run that passes config validation logs to `` `monitoring_{env}`.`audit`.`logs` `` with a fixed schema (`__uuid`, `__workflow_id`, `__workflow_run_id`, `__task_key`, `__task_run_id`, `time_stamp`, `type`, `catalog`, `schema`, `table`, `name`, `source`, `total`, `description`, `metadata`). KPI events use `source="KPI"`. A run that fails config validation stops before the logger exists: its `ConfigValidationError`, listing every invalid parameter, is only in the task's driver log and run output. |
-| **Medallion layers** | Inbound (raw files on a Volume) → Bronze (raw Delta) → Silver (typed, deduplicated, history-tracked) → Gold (materialized views over Silver, see [Gold](#gold)) → Export (files/outbound). |
+| **Medallion layers** | Inbound (raw files on a Volume) → Bronze (raw Delta) → Silver (typed, deduplicated, history-tracked) → Gold (materialized views over Silver, see [Gold](#gold)) → Export (files delivered to a consumer by a separate export task, planned in gh #40). |
 
 ## Document map
 
