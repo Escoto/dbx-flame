@@ -1,8 +1,6 @@
 ---
 name: thin-thread
-description: >
-  The smallest change that fully solves the task, and an engineer understands in one read.
-  Use when thin thread approach is requested or when the user says "simple solution", user requests "no over-engineering" or complains about bloat.
+description: The smallest change that fully solves the task, and an engineer understands in one read. Use when thin thread approach is requested or when the user says "simple solution", user requests "no over-engineering" or complains about bloat.
 ---
 
 # Thin Thread Approach
