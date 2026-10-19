@@ -1,0 +1,155 @@
+# Scenario: an MDM system exports the person object as JSON, as full snapshots and daily deltas.
+# We propagate RAW → Bronze (every export kept, one table per feed) → Silver (SCD2 history).
+#
+# Each file is a vendor envelope: {"metadata": {"export_date": ...}, "data": [{person}, ...]}.
+#   - person_full_20261101050000Z.json   the complete person list
+#   - person_delta_20261102050000Z.json  only the persons changed
+#
+#   - Bronze APPENDs every export of each feed as it arrived.
+#   - Silver is COMPLETE_DELTA with history. The full task runs first: the newest full export
+#     closes every current person and re-inserts the ones it carries. The delta task runs
+#     second and applies only the changes made after that full export.
+
+# GxP: the framework is pinned to an exact release, so every run is reproducible against a
+# known, validated version. Change it only through your change-control process.
+flame_library: &flame_library
+  - pypi:
+      package: dbx-flame==0.1.0
+
+shared_params: &shared_params
+  catalog: mdm  # resolves to mdm_<env>
+  env: "${bundle.target}"
+  metadata_path: /Volumes/mdm_${bundle.target}/metadata/checkpoints/
+  schema_evolution: fail_on_new_columns
+  output.tags.source: mdm
+  output.tags.environment: "${bundle.target}"
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    landing_to_silver_mdm:
+      name: landing_to_silver_mdm
+      # Two runs at once would race on the same checkpoints.
+      max_concurrent_runs: 1
+
+      # The exports land at 05:00
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: UTC
+        pause_status: PAUSED
+
+      # Classic job cluster only: serverless rejects the framework's Spark settings.
+      job_clusters:
+        - job_cluster_key: &cluster mdm_ingest_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m7gd.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        # The two Bronze tasks are independent and run in parallel.
+        - task_key: &bronze_full landing_to_bronze_person_full
+          job_cluster_key: *cluster
+          libraries: *flame_library
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*shared_params, *identity]
+              source.origin: json
+              source.path: /Volumes/mdm_${bundle.target}/raw/inbound/
+              source.directory: PERSON_FULL  # reads inbound/PERSON_FULL/*.json
+              # The export date comes from the 14 digits in the file name: person_full_20261101050000Z.json
+              source.snapshot_time_pattern: datetime
+              # One row per item of `data`. The listed fields become columns, the whole item stays in DATA.
+              source.preprocessors: record_envelope
+              source.envelope_fields: person_id, last_modified_dt
+              # Stamped as __ANCHOR_DT. The full feed stamps it too: the delta task compares against it.
+              source.anchor_dt.column: LAST_MODIFIED_DT
+              source.anchor_dt.format: yyyy-MM-dd HH:mm:ss
+              source.increment_strategy: checkpoint
+              output.verb: append
+              output.schema_name: bronze
+              output.table: PERSON_FULL_BRONZE
+
+        - task_key: &bronze_delta landing_to_bronze_person_delta
+          job_cluster_key: *cluster
+          libraries: *flame_library
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*shared_params, *identity]
+              source.origin: json
+              source.path: /Volumes/mdm_${bundle.target}/raw/inbound/
+              source.directory: PERSON_DELTA  # reads inbound/PERSON_DELTA/*.json
+              source.snapshot_time_pattern: datetime
+              source.preprocessors: record_envelope
+              source.envelope_fields: person_id, last_modified_dt
+              source.anchor_dt.column: LAST_MODIFIED_DT
+              source.anchor_dt.format: yyyy-MM-dd HH:mm:ss
+              source.increment_strategy: checkpoint
+              output.verb: append
+              output.schema_name: bronze
+              output.table: PERSON_DELTA_BRONZE
+
+        # Full before delta: the job's dependencies set this order, not the framework.
+        - task_key: &silver_full bronze_to_silver_person_full
+          depends_on: [{task_key: *bronze_full}]
+          job_cluster_key: *cluster
+          libraries: *flame_library
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*shared_params, *identity]
+              source.origin: table
+              source.schema_name: bronze
+              source.table: PERSON_FULL_BRONZE
+              source.increment_strategy: watermark
+              # Of several pending full exports only the newest is applied. Every current person
+              # is closed first, so a person missing from it stays closed.
+              output.verb: complete_delta
+              output.snapshot_scope: full
+              output.schema_name: silver
+              output.table: PERSON_SILVER
+              output.keys: PERSON_ID
+              output.event_time.column: __EXPORT_DATE
+              output.dedup.order_by: __EXPORT_DATE
+
+        - task_key: bronze_to_silver_person_delta
+          depends_on: [{task_key: *bronze_delta}, {task_key: *silver_full}]
+          job_cluster_key: *cluster
+          libraries: *flame_library
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*shared_params, *identity]
+              source.origin: table
+              source.schema_name: bronze
+              source.table: PERSON_DELTA_BRONZE
+              # Reads only the rows whose __ANCHOR_DT is later than Silver's newest, so a delta
+              # that the latest full export already carries is skipped.
+              source.increment_strategy: watermark
+              source.increment_anchor: true
+              # Each pending delta export is replayed in order. A person not in a delta is unchanged.
+              output.verb: complete_delta
+              output.snapshot_scope: delta
+              output.schema_name: silver
+              output.table: PERSON_SILVER
+              output.keys: PERSON_ID
+              output.event_time.column: LAST_MODIFIED_DT
+              output.event_time.format: yyyy-MM-dd HH:mm:ss
+              output.dedup.order_by: __EXPORT_DATE
