@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDC daily run</title>
+<style>
+  :root {
+    --ink: #14213d;
+    --body: #3d4659;
+    --muted: #7a8396;
+    --flame: #e8590c;
+    --line: #e6e8ee;
+    --paper: #ffffff;
+    --ok: #2b8a3e;  --ok-soft: #ebfbee;
+
+    --bronze-top: #fff6d9;  --bronze-bottom: #f6dfa4;  --bronze-edge: #c99a2e;
+    --silver-top: #fbfcfd;  --silver-bottom: #d9dee5;  --silver-edge: #9aa5b1;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { background: #eef0f4; }
+
+  body {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--body);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* A fixed-size canvas, so every screenshot for the README comes out the same. */
+  .canvas {
+    width: 1320px;
+    margin: 32px auto;
+    background: var(--paper);
+    border-radius: 14px;
+    box-shadow: 0 4px 24px rgba(20, 33, 61, .10);
+    padding: 34px 40px 30px;
+  }
+
+  .mono, code {
+    font-family: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+    color: var(--ink);
+  }
+
+  .title { display: flex; align-items: baseline; gap: 12px; margin-bottom: 26px; }
+  .title svg { width: 18px; height: 18px; align-self: center; }
+  .title h1 { font-size: 19px; color: var(--ink); }
+  .title span { font-size: 13px; color: var(--muted); }
+
+  /* Time line above the nodes */
+  .times, .flow {
+    display: grid;
+    grid-template-columns: 205px 1fr 205px 1fr 225px 1fr 225px;
+    align-items: stretch;
+  }
+  .times { margin-bottom: 10px; }
+  .times > div { display: flex; justify-content: center; }
+  .time {
+    font-size: 11.5px; font-weight: 700; color: #fff; background: var(--ink);
+    border-radius: 5px; padding: 3px 9px;
+  }
+  .time.soft { background: transparent; color: var(--muted); border: 1px dashed #ced4da; }
+
+  /* Nodes */
+  .node {
+    border: 1px solid #ced4da; border-radius: 12px; background: var(--paper);
+    padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .node.bronze {
+    background: linear-gradient(var(--bronze-top), var(--bronze-bottom));
+    border: 1.5px solid var(--bronze-edge);
+  }
+  .node.silver {
+    background: linear-gradient(var(--silver-top), var(--silver-bottom));
+    border: 1.5px solid var(--silver-edge);
+  }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .icon {
+    width: 34px; height: 34px; border-radius: 9px; flex: none;
+    display: grid; place-items: center; background: #f3f4f7; color: var(--ink);
+  }
+  .bronze .icon { background: rgba(255, 255, 255, .6); color: #8a6414; }
+  .silver .icon { background: rgba(255, 255, 255, .7); color: #4b5563; }
+  .icon svg { width: 19px; height: 19px; }
+  .head h2 { font-size: 16px; color: var(--ink); line-height: 1.15; }
+  .head p { font-size: 11.5px; color: var(--muted); }
+
+  .table-name { font-size: 11.5px; font-weight: 700; }
+
+  /* File chips and export bands */
+  .stack { display: grid; gap: 5px; }
+  .chip {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    background: var(--paper); border: 1px solid #ced4da; border-radius: 6px;
+    padding: 5px 8px; font-size: 11px;
+  }
+  .chip.old { opacity: .55; }
+  .chip.new { border-color: var(--ok); background: var(--ok-soft); }
+  .tag {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 9.5px; font-weight: 700; color: #fff; background: var(--ok);
+    border-radius: 3px; padding: 1px 5px;
+  }
+  .band {
+    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(255, 255, 255, .75); border: 1px solid rgba(20, 33, 61, .14);
+    border-radius: 6px; padding: 5px 8px; font-size: 11.5px; color: var(--ink);
+  }
+  .band small { font-size: 10.5px; color: var(--muted); }
+  .band.new { background: var(--ok-soft); border-color: var(--ok); }
+  .band.old { opacity: .6; }
+
+  .caption { font-size: 12px; line-height: 1.45; color: var(--body); margin-top: auto; }
+  .caption b { color: var(--ink); }
+
+  /* Connectors */
+  .link { display: flex; flex-direction: column; justify-content: center; padding: 0 6px; }
+  .link .what { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .link .line {
+    position: relative; height: 2px; background: var(--muted); margin: 0 4px;
+  }
+  .link .line::after {
+    content: ""; position: absolute; right: -2px; top: -5px;
+    border-left: 9px solid var(--muted); border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+  }
+  .link .how { font-size: 11px; color: var(--muted); text-align: center; margin-top: 7px; line-height: 1.35; }
+  .st, .vb {
+    font-family: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+    font-size: 10.5px; border-radius: 4px; padding: 3px 6px; white-space: nowrap; line-height: 1;
+  }
+  .st { background: #fff; color: var(--ink); border: 1px solid #ced4da; }
+  .vb { background: var(--ink); color: #fff; font-weight: 700; }
+  .task {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--ink);
+    font-weight: 600;
+  }
+  .step {
+    width: 17px; height: 17px; border-radius: 50%; background: var(--flame); color: #fff;
+    display: grid; place-items: center; font-size: 10px; font-weight: 700;
+  }
+
+  .legend {
+    display: flex; gap: 22px; justify-content: flex-end; margin-top: 22px;
+    font-size: 11px; color: var(--muted);
+  }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+</style>
+</head>
+<body>
+<div class="canvas">
+
+  <div class="title">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#e8590c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 0-3-1-5.5 1-8.5z"/></svg>
+    <h1>landing_to_silver_edc</h1>
+    <span>a regular day: one full CSV snapshot in, every export kept in Bronze, the newest in Silver</span>
+  </div>
+
+  <div class="times">
+    <div><span class="time">05:00</span></div><div></div>
+    <div><span class="time soft">waits</span></div><div></div>
+    <div><span class="time">06:00</span></div><div></div>
+    <div><span class="time">then</span></div>
+  </div>
+
+  <div class="flow">
+
+    <!-- EDC -->
+    <section class="node">
+      <div class="head">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+        <div><h2>EDC system</h2><p>exports the full site list</p></div>
+      </div>
+      <div class="stack">
+        <div class="chip new"><span class="mono">site_<b>20261101050000</b>.csv</span></div>
+      </div>
+      <p class="caption">One complete snapshot a day. The <b>file name</b> carries the export time.</p>
+    </section>
+
+    <div class="link">
+      <div class="what"><span class="st">upload</span></div>
+      <div class="line"></div>
+      <div class="how">file lands<br>as is</div>
+    </div>
+
+    <!-- S3 -->
+    <section class="node">
+      <div class="head">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+        <div><h2>S3 landing</h2><p class="mono" style="font-size:10.5px">raw/inbound/SITE/</p></div>
+      </div>
+      <div class="stack">
+        <div class="chip new"><span class="mono">site_20261101…csv</span><span class="tag">NEW</span></div>
+        <div class="chip old"><span class="mono">site_20261031…csv</span></div>
+        <div class="chip old"><span class="mono">site_20261030…csv</span></div>
+      </div>
+      <p class="caption">Files stay where they land. The job never moves or deletes them.</p>
+    </section>
+
+    <div class="link">
+      <div class="what"><span class="task"><span class="step">1</span>landing_to_bronze</span></div>
+      <div class="what"><span class="st">checkpoint</span><span class="vb">APPEND</span></div>
+      <div class="line"></div>
+      <div class="how">reads <b>only the new file</b>,<br>stamps every row</div>
+    </div>
+
+    <!-- Bronze -->
+    <section class="node bronze">
+      <div class="head">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></div>
+        <div><h2>Bronze</h2><p class="mono table-name">SITE_BRONZE</p></div>
+      </div>
+      <div class="stack">
+        <div class="band new"><span class="mono">export 11-01</span><span class="tag">+3 rows</span></div>
+        <div class="band old"><span class="mono">export 10-31</span><small>3 rows</small></div>
+        <div class="band old"><span class="mono">export 10-30</span><small>3 rows</small></div>
+      </div>
+      <p class="caption"><b>Every export, as it arrived.</b> Each row keeps its <code>__SOURCE</code> file and <code>__EXPORT_DATE</code>.</p>
+    </section>
+
+    <div class="link">
+      <div class="what"><span class="task"><span class="step">2</span>bronze_to_silver</span></div>
+      <div class="what"><span class="st">checkpoint</span><span class="vb">FULL</span></div>
+      <div class="line"></div>
+      <div class="how">reads <b>only today's rows</b>,<br>keeps the newest export</div>
+    </div>
+
+    <!-- Silver -->
+    <section class="node silver">
+      <div class="head">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg></div>
+        <div><h2>Silver</h2><p class="mono table-name">SITE_SILVER</p></div>
+      </div>
+      <div class="stack">
+        <div class="band new"><span class="mono">export 11-01</span><small>3 rows</small></div>
+      </div>
+      <p class="caption"><b>Only the newest export.</b> The whole table is replaced. A site missing from today's file is gone.</p>
+    </section>
+
+  </div>
+
+  <div class="legend">
+    <span><i style="background:var(--ok-soft);border:1px solid var(--ok)"></i>new today</span>
+    <span><i style="background:linear-gradient(var(--bronze-top),var(--bronze-bottom));border:1px solid var(--bronze-edge)"></i>Bronze: history</span>
+    <span><i style="background:linear-gradient(var(--silver-top),var(--silver-bottom));border:1px solid var(--silver-edge)"></i>Silver: current state</span>
+  </div>
+
+</div>
+<script>
+  // Shrinks the canvas to fit a narrow window. At 1400px or wider it renders at full size.
+  const canvas = document.querySelector(".canvas");
+  const fit = () => { document.body.style.zoom = Math.min(1, (innerWidth - 32) / canvas.offsetWidth); };
+  addEventListener("resize", fit);
+  fit();
+</script>
+</body>
+</html>

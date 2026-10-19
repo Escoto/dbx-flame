@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MDM full and delta</title>
+<style>
+  :root {
+    --ink: #14213d;
+    --body: #3d4659;
+    --muted: #7a8396;
+    --flame: #e8590c;
+    --line: #e6e8ee;
+    --paper: #ffffff;
+    --ok: #2b8a3e;  --ok-soft: #ebfbee;
+
+    --bronze-top: #fff6d9;  --bronze-bottom: #f6dfa4;  --bronze-edge: #c99a2e;
+    --silver-top: #fbfcfd;  --silver-bottom: #d9dee5;  --silver-edge: #9aa5b1;
+
+    /* One colour per reference date, used on every chip and cell it sets. */
+    --d-export: #d9480f;  --d-export-soft: #fff0e6;
+    --d-anchor: #6741d9;  --d-anchor-soft: #f1edff;
+    --d-lmd: #0b7285;     --d-lmd-soft: #e3f8fb;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { background: #eef0f4; }
+
+  body {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--body);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* A fixed-size canvas, so every screenshot for the README comes out the same. */
+  .canvas {
+    width: 1400px;
+    margin: 32px auto;
+    background: var(--paper);
+    border-radius: 14px;
+    box-shadow: 0 4px 24px rgba(20, 33, 61, .10);
+    padding: 34px 40px 30px;
+  }
+
+  .mono, code {
+    font-family: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+    color: var(--ink);
+  }
+
+  .title { display: flex; align-items: baseline; gap: 12px; margin-bottom: 24px; }
+  .title svg { width: 18px; height: 18px; align-self: center; }
+  .title h1 { font-size: 19px; color: var(--ink); }
+  .title span { font-size: 13px; color: var(--muted); }
+
+  /* Two lanes (full, delta) between one source and one Silver table */
+  .flow {
+    display: grid;
+    grid-template-columns: 200px 76px 225px 76px 215px 1fr 330px;
+    grid-template-rows: auto auto auto;
+    row-gap: 18px;
+  }
+  .times { display: contents; }
+  .times > div { display: flex; justify-content: center; }
+  .time {
+    font-size: 11.5px; font-weight: 700; color: #fff; background: var(--ink);
+    border-radius: 5px; padding: 3px 9px;
+  }
+  .time.soft { background: transparent; color: var(--muted); border: 1px dashed #ced4da; }
+
+  .lane-label {
+    grid-column: 3 / 6; display: flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+    color: var(--muted); margin-bottom: -10px;
+  }
+
+  /* Nodes */
+  .node {
+    border: 1px solid #ced4da; border-radius: 12px; background: var(--paper);
+    padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 9px;
+  }
+  .node.bronze {
+    background: linear-gradient(var(--bronze-top), var(--bronze-bottom));
+    border: 1.5px solid var(--bronze-edge);
+  }
+  .node.silver {
+    background: linear-gradient(var(--silver-top), var(--silver-bottom));
+    border: 1.5px solid var(--silver-edge);
+  }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .icon {
+    width: 32px; height: 32px; border-radius: 9px; flex: none;
+    display: grid; place-items: center; background: #f3f4f7; color: var(--ink);
+  }
+  .bronze .icon { background: rgba(255, 255, 255, .6); color: #8a6414; }
+  .silver .icon { background: rgba(255, 255, 255, .7); color: #4b5563; }
+  .icon svg { width: 18px; height: 18px; }
+  .head h2 { font-size: 15px; color: var(--ink); line-height: 1.15; }
+  .head p { font-size: 11px; color: var(--muted); }
+  .table-name { font-size: 11px; font-weight: 700; }
+
+  .stack { display: grid; gap: 5px; }
+  .chip {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    background: var(--paper); border: 1px solid #ced4da; border-radius: 6px;
+    padding: 5px 8px; font-size: 10.5px;
+  }
+  .chip.old { opacity: .55; }
+  .chip.new { border-color: var(--ok); background: var(--ok-soft); }
+  /* The tag sits on the chip's corner, so the file name keeps the full width. */
+  .chip { position: relative; }
+  .chip .tag { position: absolute; top: -8px; right: -6px; }
+  .tag {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 9.5px; font-weight: 700; color: #fff; background: var(--ok);
+    border-radius: 3px; padding: 1px 5px;
+  }
+  .band {
+    display: flex; justify-content: space-between; align-items: center; gap: 6px;
+    background: rgba(255, 255, 255, .75); border: 1px solid rgba(20, 33, 61, .14);
+    border-radius: 6px; padding: 5px 8px; font-size: 11px; color: var(--ink);
+  }
+  .band.new { background: var(--ok-soft); border-color: var(--ok); }
+  .band.old { opacity: .6; }
+
+  .caption { font-size: 11.5px; line-height: 1.45; color: var(--body); margin-top: auto; }
+  .caption b { color: var(--ink); }
+
+  /* Date chips */
+  .d {
+    font-family: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+    font-size: 10px; font-weight: 700; border-radius: 4px; padding: 2px 5px;
+    white-space: nowrap; border: 1px solid;
+  }
+  .d.export { color: var(--d-export); background: var(--d-export-soft); border-color: var(--d-export); }
+  .d.anchor { color: var(--d-anchor); background: var(--d-anchor-soft); border-color: var(--d-anchor); }
+  .d.lmd { color: var(--d-lmd); background: var(--d-lmd-soft); border-color: var(--d-lmd); }
+
+  /* Connectors */
+  .link { display: flex; flex-direction: column; justify-content: center; padding: 0 6px; }
+  .link .what { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .link .line { position: relative; height: 2px; background: var(--muted); margin: 0 4px; }
+  .link .line::after {
+    content: ""; position: absolute; right: -2px; top: -5px;
+    border-left: 9px solid var(--muted); border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+  }
+  .link .how {
+    font-size: 10.5px; color: var(--muted); text-align: center; margin-top: 7px; line-height: 1.5;
+  }
+  .link .how .d { font-size: 9.5px; }
+  .st, .vb, .opt {
+    font-family: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+    font-size: 10px; border-radius: 4px; padding: 3px 6px; white-space: nowrap; line-height: 1;
+  }
+  .st { background: #fff; color: var(--ink); border: 1px solid #ced4da; }
+  .vb { background: var(--ink); color: #fff; font-weight: 700; }
+  .opt { background: #fff1e8; color: var(--flame); font-weight: 600; }
+  .task {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--ink);
+    font-weight: 600;
+  }
+  .step {
+    width: 17px; height: 17px; border-radius: 50%; background: var(--flame); color: #fff;
+    display: grid; place-items: center; font-size: 10px; font-weight: 700; flex: none;
+  }
+
+  .rule { display: grid; grid-template-columns: auto 1fr; gap: 3px 6px; align-items: center; }
+  .rule span { font-size: 10px; color: var(--muted); text-align: right; }
+  .rule .d { justify-self: start; }
+
+  /* Silver history table */
+  table {
+    width: 100%; border-collapse: separate; border-spacing: 0; background: rgba(255, 255, 255, .85);
+    font-size: 10.5px; border: 1px solid rgba(20, 33, 61, .16); border-radius: 7px; overflow: hidden;
+  }
+  th {
+    text-align: left; font-weight: 700; color: var(--ink); padding: 5px 4px; font-size: 8.5px;
+    font-family: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+    background: rgba(20, 33, 61, .05);
+  }
+  td { padding: 4px 4px; border-top: 1px solid rgba(20, 33, 61, .08); color: var(--ink); }
+  td.mono { font-size: 10px; }
+  td .d { font-size: 9.5px; }
+  tr.closed td { color: var(--muted); }
+  tr.closed td .d { opacity: .7; }
+  .yes { color: var(--ok); font-weight: 700; }
+
+  /* Dates panel */
+  .dates {
+    margin-top: 26px; border: 1px solid var(--line); border-radius: 10px; background: #f8f9fb;
+    padding: 14px 18px;
+  }
+  .dates h3 {
+    font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--flame);
+    margin-bottom: 10px;
+  }
+  .dates .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .dates .item { display: flex; flex-direction: column; gap: 5px; }
+  .dates .item .d { align-self: flex-start; font-size: 11px; }
+  .dates .from { font-size: 11px; color: var(--muted); }
+  .dates p { font-size: 12px; line-height: 1.45; }
+  .dates p b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="canvas">
+
+  <div class="title">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#e8590c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 0-3-1-5.5 1-8.5z"/></svg>
+    <h1>landing_to_silver_mdm</h1>
+    <span>full snapshots and daily deltas of the person object, merged into one Silver history</span>
+  </div>
+
+  <div class="flow">
+
+    <!-- Row 1: times -->
+    <div class="times">
+      <div style="grid-column:1;grid-row:1"><span class="time">05:00</span></div>
+      <div style="grid-column:3;grid-row:1"><span class="time soft">waits</span></div>
+      <div style="grid-column:5;grid-row:1"><span class="time">06:00</span></div>
+      <div style="grid-column:7;grid-row:1"><span class="time">then: full ③, delta ④</span></div>
+    </div>
+
+    <!-- MDM, spans both lanes -->
+    <section class="node" style="grid-column:1;grid-row:2 / 4">
+      <div class="head">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.6.8 2.6 2.5 3 5.2"/></svg></div>
+        <div><h2>MDM system</h2><p>exports the person object</p></div>
+      </div>
+      <p class="caption" style="margin-top:0">Each file is an envelope: <code>metadata</code> plus a <code>data</code> array of persons.</p>
+      <pre class="mono" style="font-size:9px;line-height:1.45;background:#f8f9fb;border:1px solid var(--line);border-radius:6px;padding:7px 8px;white-space:pre">{ "metadata": {…},
+  "data": [{
+    "person_id": "P001",
+    "last_modified_dt":
+      "2026-11-01 14:30:00",
+    …
+  }] }</pre>
+      <p class="caption"><b>Full:</b> every person.<br><b>Delta:</b> only the persons that changed.</p>
+    </section>
+
+    <!-- FULL lane -->
+    <div class="link" style="grid-column:2;grid-row:2">
+      <div class="what"><span class="st">full</span></div>
+      <div class="line"></div>
+    </div>
+
+    <section class="node" style="grid-column:3;grid-row:2">
+      <div class="head">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+        <div><h2>S3 landing</h2><p class="mono" style="font-size:10px">inbound/PERSON_FULL/</p></div>
+      </div>
+      <div class="stack">
+        <div class="chip old"><span class="mono">person_full_<b>20261101…</b>.json</span></div>
+      </div>
+    </section>
+
+    <div class="link" style="grid-column:4;grid-row:2">
+      <div class="what"><span class="step">1</span><span class="vb">APPEND</span></div>
+      <div class="line"></div>
+    </div>
+
+    <section class="node bronze" style="grid-column:5;grid-row:2">
+      <div class="head">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></div>
+        <div><h2>Bronze · full</h2><p class="mono table-name">PERSON_FULL_BRONZE</p></div>
+      </div>
+      <div class="stack">
+        <div class="band old"><span class="mono">full</span><span class="d export">11-01 05:00</span></div>
+      </div>
+      <p class="caption">Each row: <span class="d export">__EXPORT_DATE</span> from the file name, <span class="d anchor">__ANCHOR_DT</span> from <code>last_modified_dt</code>.</p>
+    </section>
+
+    <div class="link" style="grid-column:6;grid-row:2">
+      <div class="what"><span class="task"><span class="step">3</span>bronze_to_silver_person_full</span></div>
+      <div class="what"><span class="st">watermark</span><span class="vb">COMPLETE_DELTA</span><span class="opt">scope: full</span></div>
+      <div class="line"></div>
+      <div class="how rule">
+        <span>reads by</span><span class="d export">__EXPORT_DATE</span>
+        <span>dates by</span><span class="d export">__EXPORT_DATE</span>
+      </div>
+      <div class="how">no new full today: nothing to do</div>
+    </div>
+
+    <!-- DELTA lane -->
+    <div class="link" style="grid-column:2;grid-row:3">
+      <div class="what"><span class="st">delta</span></div>
+      <div class="line"></div>
+    </div>
+
+    <section class="node" style="grid-column:3;grid-row:3">
+      <div class="head">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+        <div><h2>S3 landing</h2><p class="mono" style="font-size:10px">inbound/PERSON_DELTA/</p></div>
+      </div>
+      <div class="stack">
+        <div class="chip new"><span class="mono">person_delta_<b>20261102…</b>.json</span><span class="tag">NEW</span></div>
+      </div>
+    </section>
+
+    <div class="link" style="grid-column:4;grid-row:3">
+      <div class="what"><span class="step">2</span><span class="vb">APPEND</span></div>
+      <div class="line"></div>
+    </div>
+
+    <section class="node bronze" style="grid-column:5;grid-row:3">
+      <div class="head">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></div>
+        <div><h2>Bronze · delta</h2><p class="mono table-name">PERSON_DELTA_BRONZE</p></div>
+      </div>
+      <div class="stack">
+        <div class="band new"><span class="mono">delta · P001</span><span class="d export">11-02 05:00</span></div>
+      </div>
+      <p class="caption">Same stamps as the full feed. Every export of each feed stays.</p>
+    </section>
+
+    <div class="link" style="grid-column:6;grid-row:3">
+      <div class="what"><span class="task"><span class="step">4</span>bronze_to_silver_person_delta</span></div>
+      <div class="what"><span class="st">watermark + anchor</span><span class="vb">COMPLETE_DELTA</span><span class="opt">scope: delta</span></div>
+      <div class="line"></div>
+      <div class="how rule">
+        <span>reads by</span><span class="d anchor">__ANCHOR_DT</span>
+        <span>dates by</span><span class="d lmd">LAST_MODIFIED_DT</span>
+      </div>
+      <div class="how">waits for ③</div>
+    </div>
+
+    <!-- Silver, spans both lanes -->
+    <section class="node silver" style="grid-column:7;grid-row:2 / 4">
+      <div class="head">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg></div>
+        <div><h2>Silver</h2><p class="mono table-name">PERSON_SILVER</p></div>
+      </div>
+      <p class="caption" style="margin-top:0"><b>One history (SCD2) for both feeds.</b> After today's run:</p>
+      <table>
+        <thead><tr><th>PERSON_ID</th><th>__START_DATE</th><th>__END_DATE</th><th>__CURRENT_FLAG</th></tr></thead>
+        <tbody>
+          <tr class="closed"><td>P001</td><td><span class="d export">11-01 05:00</span></td><td><span class="d lmd">11-01 14:30</span></td><td>N</td></tr>
+          <tr><td>P001</td><td><span class="d lmd">11-01 14:30</span></td><td>—</td><td class="yes">Y</td></tr>
+          <tr><td>P002</td><td><span class="d export">11-01 05:00</span></td><td>—</td><td class="yes">Y</td></tr>
+        </tbody>
+      </table>
+      <p class="caption">
+        <b>Next full export:</b> closes every current person at its <span class="d export">__EXPORT_DATE</span>,
+        then re-inserts the persons it carries. A person missing from it stays closed.
+      </p>
+    </section>
+  </div>
+
+  <div class="dates">
+    <h3>The dates that update Silver</h3>
+    <div class="grid">
+      <div class="item">
+        <span class="d export">__EXPORT_DATE</span>
+        <span class="from">from the 14 digits in the file name · stamped in Bronze</span>
+        <p><b>Full task ③.</b> It reads only the full exports later than the newest export in Silver. Its versions start, and the persons it drops close, at this date.</p>
+      </div>
+      <div class="item">
+        <span class="d anchor">__ANCHOR_DT</span>
+        <span class="from">a copy of <code>last_modified_dt</code> · <code>source.anchor_dt</code> in both Bronze tasks</span>
+        <p><b>Delta task ④, which rows to read.</b> Only rows that changed after the newest change in Silver. A delta that the latest full export already carries is skipped.</p>
+      </div>
+      <div class="item">
+        <span class="d lmd">LAST_MODIFIED_DT</span>
+        <span class="from">the person record itself · <code>output.event_time</code> of the delta task</span>
+        <p><b>Delta task ④, when a version starts.</b> A change starts its new version, and closes the previous one, at the time the person changed in MDM.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+  // Shrinks the canvas to fit a narrow window. At 1480px or wider it renders at full size.
+  const canvas = document.querySelector(".canvas");
+  const fit = () => { document.body.style.zoom = Math.min(1, (innerWidth - 32) / canvas.offsetWidth); };
+  addEventListener("resize", fit);
+  fit();
+</script>
+</body>
+</html>
