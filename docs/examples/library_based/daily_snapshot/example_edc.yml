@@ -1,0 +1,93 @@
+# Scenario: EDC exports daily full snapshots as CSV.
+# We propagate RAW → Bronze (every export kept) → Silver (latest export kept).
+#
+# The EDC system drops one complete export per day, e.g. site_20261101050000.csv. There are
+# no business keys or change dates we can trust, so nothing is merged:
+#   - Bronze APPENDs every export as it arrived, stamped with its file and export date.
+#   - Silver is a FULL replace with the newest export (combinations lane 1 → lane 3).
+
+# GxP: the framework is pinned to an exact release, so every run is reproducible against a
+# known, validated version. Change it only through your change-control process.
+flame_library: &flame_library
+  - pypi:
+      package: dbx-flame==0.1.0
+
+shared_params: &shared_params
+  catalog: edc  # resolves to edc_<env>
+  env: "${bundle.target}"
+  metadata_path: /Volumes/edc_${bundle.target}/metadata/checkpoints/
+  schema_evolution: fail_on_new_columns
+  output.tags.source: edc
+  output.tags.environment: "${bundle.target}"
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    landing_to_silver_edc:
+      name: landing_to_silver_edc
+      # Two runs at once would race on the same checkpoints.
+      max_concurrent_runs: 1
+
+      # The export lands at 05:00
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: UTC
+        pause_status: PAUSED
+
+      # Classic job cluster only: serverless rejects the framework's Spark settings.
+      job_clusters:
+        - job_cluster_key: &cluster edc_cluster_ingest_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m7gd.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: landing_to_bronze_site
+          job_cluster_key: *cluster
+          libraries: *flame_library
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*shared_params, *identity]
+              source.origin: csv
+              source.path: /Volumes/edc_${bundle.target}/raw/inbound/
+              source.directory: SITE  # reads inbound/SITE/*.csv
+              # The export date comes from the 14 digits in the file name: site_20261101050000.csv
+              source.snapshot_time_pattern: datetime
+              source.options.header: true
+              source.options.delimiter: ","
+              source.increment_strategy: checkpoint
+              output.verb: append
+              output.schema_name: bronze
+              output.table: SITE
+
+        - task_key: bronze_to_silver_site
+          depends_on: landing_to_bronze_site
+          job_cluster_key: *cluster
+          libraries: *flame_library
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame
+            named_parameters:
+              <<: [*shared_params, *identity]
+              source.origin: table
+              source.schema_name: bronze
+              source.table: SITE_BRONZE
+              source.increment_strategy: checkpoint
+              # FULL keeps only the newest export of each run even if we have a backlog of several exports.
+              output.verb: full
+              output.schema_name: silver
+              output.table: SITE_SILVER
