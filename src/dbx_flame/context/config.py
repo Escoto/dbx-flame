@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from enum import StrEnum
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -272,3 +274,74 @@ class TaskConfig(BaseModel):
     typing: TypingConfig = TypingConfig()
     policies: PoliciesConfig = PoliciesConfig()
     output: OutputConfig
+
+
+def in_volume_of(catalog: str, path: str) -> bool:
+    """Whether path sits under /Volumes/<catalog>/, so its data stays in that catalog."""
+    parts = path.strip("/").split("/")
+    return len(parts) > 1 and parts[0] == "Volumes" and parts[1].lower() == catalog.lower()
+
+
+# Characters a rendered stamp must not carry: it becomes part of every file name.
+_UNSAFE_FILE_CHARS = frozenset('/\\:*?"<>|')
+
+
+class ExportConfig(BaseModel):
+    # The delivery's name, e.g. CRO: it names the package a delivery is sent in.
+    name: str
+    schema_name: str
+    # Empty means every table and view in the schema.
+    tables: list[str] = []
+    preparation_path: str
+    stamp_format: str
+    # The zone the stamp is taken in: a receiver dates its deliveries in its own time.
+    timezone: str = "UTC"
+    with_ts_object_names: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def _name_is_an_uppercase_file_name_part(cls, value: str) -> str:
+        if not value or value != value.upper() or _UNSAFE_FILE_CHARS & set(value):
+            raise ValueError(f"expected an UPPERCASE file name part, e.g. CRO, got '{value}'")
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_is_known(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise ValueError(
+                f"expected an IANA time zone, e.g. Europe/Berlin, got '{value}'"
+            ) from None
+        return value
+
+    @field_validator("stamp_format")
+    @classmethod
+    def _stamp_is_a_file_name_part(cls, value: str) -> str:
+        # Without a directive ('YYYYMMDD') every run would carry the same stamp.
+        rendered = datetime.now().strftime(value)
+        if "%" not in value or not rendered or _UNSAFE_FILE_CHARS & set(rendered):
+            raise ValueError(
+                f"expected a strftime format that renders a file name part, "
+                f"e.g. %Y%m%dT%H%M%S, got '{value}'"
+            )
+        return value
+
+
+class ExportTaskConfig(BaseModel):
+    catalog: str
+    env: str
+    export: ExportConfig
+
+    @model_validator(mode="after")
+    def _preparation_inside_own_volume(self) -> "ExportTaskConfig":
+        """A run clears a folder under this path, so it never points above a volume."""
+        catalog = f"{self.catalog}_{self.env}"
+        path = self.export.preparation_path
+        if not in_volume_of(catalog, path) or len(path.strip("/").split("/")) < 4:
+            raise ValueError(
+                "export.preparation_path must be inside a Volume of the task's catalog "
+                f"(/Volumes/{catalog}/<schema>/<volume>/...), got '{path}'"
+            )
+        return self

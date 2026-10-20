@@ -59,3 +59,7 @@ resources:
         - task_key: scd2_csv_long_backlog_test
           run_job_task:
             job_id: ${resources.jobs.scd2_csv_long_backlog_test.id}
+
+        - task_key: export_csv_schema_test
+          run_job_task:
+            job_id: ${resources.jobs.export_csv_schema_test.id}

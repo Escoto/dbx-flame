@@ -313,3 +313,31 @@ Note `output.event_time.format`. It is needed only while `UPDATEDTIME` is still 
 string. Once a cast config has typed that column, the format must be **omitted** here —
 re-parsing an already-typed timestamp with a source format yields NULL and fails cast
 validation. See §5.
+
+## 8. Export task
+
+The export task (`entry_point: dbx-flame-export`) takes its own parameters, validated the
+same way: unknown keys are rejected and every error is listed at once. What a run does
+with them: [09_export.md](09_export.md).
+
+```yaml
+catalog: mdm                      # str, required
+env: dev                          # str, required   (always ${bundle.target})
+export.name: CRO                  # str, required, UPPERCASE; names the delivery
+export.schema_name: gold_cro      # str, required; the schema whose objects are exported
+export.tables: "SITE, CONTACT"    # list; empty → every table and view in the schema
+export.preparation_path: /Volumes/mdm_dev/gold_cro/exports/  # str, required
+export.stamp_format: "%Y-%m-%d"   # str, required; a strftime format
+export.timezone: Europe/Berlin    # str, default UTC; the zone the stamp is taken in
+export.with_ts_object_names: false  # bool, default false; SITE_<stamp>.csv instead of SITE.csv
+```
+
+Rejected at Start:
+
+- `export.name` that isn't UPPERCASE, or holds a character a file name can't carry
+  (`/ \ : * ? " < > |`);
+- `export.timezone` that isn't an IANA time zone name;
+- `export.stamp_format` without a `%` directive (every run would carry the same stamp), or
+  one that renders a character a file name can't carry;
+- `export.preparation_path` outside a Volume of `{catalog}_{env}`, or above the Volume
+  itself: a run clears a folder under it.

@@ -75,6 +75,7 @@ neighbour's checkpoints mid-run. Workspace prerequisites and tracing a failed ru
 - `flame-pm`: choosing, evaluating, writing and labelling GitHub issues.
 - `flame-data-setup`: onboarding a dataset, from raw files or a table we didn't create to Silver.
 - `pharma-regulations`: GxP and ALCOA+ guidance for regulated data.
+- `flame-feature-state`: a sample config for a feature in progress, marking what's ready and which issue adds the rest.
 
 ## Planning
 

@@ -1,4 +1,4 @@
-"""Step 1 — write the week of Elluminate snapshots the pipeline never picked up.
+"""Step 1 — write the week of CDR snapshots the pipeline never picked up.
 
 Seven daily exports, each carrying every study whether or not anything changed —
 that is what a full-snapshot feed looks like, and it is why TST_ST_111 appears
@@ -6,7 +6,7 @@ identically seven times.
 
 Each file name carries the 14-digit stamp that __EXPORT_DATE and the snapshot id are
 both derived from. UPDATEDATE is something else entirely: the record's own edit time,
-in Elluminate's MM/dd/yyyy HH:mm:ss, and the column the validity windows are built from
+in CDR's MM/dd/yyyy HH:mm:ss, and the column the validity windows are built from
 once the cast config has turned it into a real timestamp.
 """
 

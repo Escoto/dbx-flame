@@ -1,7 +1,7 @@
-# End-to-end platform test: Elluminate study milestones, typed on the way into
+# End-to-end platform test: CDR study milestones, typed on the way into
 # Bronze, replayed into Silver with COMPLETE_DELTA.
 #
-# The scenario: Elluminate exports one CSV snapshot per day containing every study,
+# The scenario: CDR exports one CSV snapshot per day containing every study,
 # and the pipeline has not run for a week. Seven snapshots are waiting, which is the
 # backlog COMPLETE_DELTA exists to replay rather than collapse into its newest state.
 #
@@ -17,7 +17,7 @@
 # carries no format here — a second MM/dd/yyyy parse over a typed column would yield
 # NULL and fail the cast validation.
 #
-# snapshot_scope is full: Elluminate re-asserts its whole dataset daily, so a record
+# snapshot_scope is full: CDR re-asserts its whole dataset daily, so a record
 # a snapshot stops carrying is treated as gone, and each snapshot supersedes the ones
 # before it. Only the newest of the seven is replayed; silver holds 9 rows here against
 # the `delta` twin's full history. The two agree exactly on the current state.

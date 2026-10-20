@@ -52,7 +52,7 @@ for column in ("MILESTONESEQ", "KEYSEQ", "UPDATEDATE"):
     nulls = df.filter(df[column].isNull()).count()
     assert nulls == 0, f"{column} has {nulls} NULLs after casting"
 
-# The genuinely empty fields Elluminate sends: a DATE milestone carries no value and
+# The genuinely empty fields CDR sends: a DATE milestone carries no value and
 # a NUMBER milestone carries no date. These are empty at source, not failed casts.
 date_milestones = SNAPSHOTS * len(STUDIES) * 2
 number_milestones = SNAPSHOTS * len(STUDIES)

@@ -87,8 +87,8 @@ for uri in ADDED:
 assert "city" not in item(full, NO_CITY), "111/1 was never supposed to carry a city"
 assert item(full, MUNICH)["city"] == "Munich", "the unconfigured fields were lost"
 assert item(full, MUNICH)["related_cro"] == [
-    "0-NA7SH0 [ICON]",
-    "0-NAP01W [SYNEOS]",
+    "0-NA7SH0 [CRO]",
+    "0-NAP01W [CRO1]",
 ], "the nested array did not survive as JSON text"
 
 # The same address in both feeds, at different statuses and different payloads.

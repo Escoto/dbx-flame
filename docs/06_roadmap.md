@@ -80,7 +80,7 @@ end to end by `complete_delta_json_full_test` (two feeds, two Bronze tables, one
 ## Out of scope (explicitly deferred)
 
 - Quarantining invalid rows to a second target; the gate refuses the batch whole.
-- Source→Inbound retrieval and governance views. Export is planned in gh #40.
+- Source→Inbound retrieval and governance views. Export is in progress in gh #40.
 - A generic `flatten_nested` pre-processor: exploding nested arrays multiplies rows and
   denormalizes the data, so flattening a payload is left to its consumer.
 

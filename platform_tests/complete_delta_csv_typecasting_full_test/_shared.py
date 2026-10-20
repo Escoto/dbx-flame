@@ -1,6 +1,6 @@
-"""Fixtures and assertions for the Elluminate study-milestones platform tests.
+"""Fixtures and assertions for the CDR study-milestones platform tests.
 
-The scenario: Elluminate exports one CSV snapshot per day containing *every* study,
+The scenario: CDR exports one CSV snapshot per day containing *every* study,
 and the pipeline has not run for a week. Seven snapshots are therefore sitting in
 inbound when it finally does, which is precisely the backlog COMPLETE_DELTA exists to
 replay rather than collapse.
@@ -32,7 +32,7 @@ SOURCE_DIRECTORY = "COMPLETE_DELTA_STUDYMILESTONES_SOURCE_3"
 FILE_PREFIX = "StudyMilestones"
 SNAPSHOTS = 7
 
-# Elluminate's own column list, in export order.
+# CDR's own column list, in export order.
 COLUMNS = [
     "STUDYID",
     "SUBSTUDYID",
@@ -78,7 +78,7 @@ CAST_TYPES = {
 STATIC_UPDATE = "08/28/2026 08:00:00"
 STATIC_START = "2026-08-28 08:00:00"
 
-# The week of snapshots. Elluminate exports at 23:00, after the day's edits.
+# The week of snapshots. CDR exports at 23:00, after the day's edits.
 FIRST_DAY = datetime.date(2026, 9, 13)
 EXPORT_HOUR = "230000"
 
@@ -109,7 +109,7 @@ def export_stamp(offset: int) -> str:
 
 
 def updated_at(offset: int, hour: str) -> str:
-    """A record's own UPDATEDATE, in Elluminate's MM/dd/yyyy HH:mm:ss."""
+    """A record's own UPDATEDATE, in CDR's MM/dd/yyyy HH:mm:ss."""
     return f"{day(offset).strftime('%m/%d/%Y')} {hour}"
 
 
@@ -131,7 +131,7 @@ def milestone_values(study: str, code: str, offset: int) -> tuple:
     """(MILESTONEDATE, MILESTONEVALUE, UPDATEDATE) for one record in one snapshot.
 
     A DATE milestone carries no value and a NUMBER milestone carries no date, exactly
-    as Elluminate sends them — which also means the cast validation has to tolerate
+    as CDR sends them — which also means the cast validation has to tolerate
     genuinely empty fields rather than treat them as failed casts.
     """
     base = BASELINE[study][code]
@@ -178,8 +178,8 @@ def snapshot_rows(offset: int) -> list:
                         date_value,
                         number_value,
                         code,
-                        "ELLUMINATE",
-                        "ELLUMINATE_ETL",
+                        "CDR",
+                        "CDR_ETL",
                         updated,
                     ]
                 )

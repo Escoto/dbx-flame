@@ -23,3 +23,5 @@ class Kpi(StrEnum):
     ROWS_HISTORIZED = "rows_historized"
     # COMPLETE_DELTA deletes feed: keys soft-deleted and their open version closed.
     ROWS_RETIRED = "rows_retired"
+    # Export: rows in one object's exported file, counted from the file itself.
+    ROWS_EXPORTED = "rows_exported"

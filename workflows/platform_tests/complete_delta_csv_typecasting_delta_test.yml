@@ -1,7 +1,7 @@
-# End-to-end platform test: Elluminate study milestones, typed on the way into
+# End-to-end platform test: CDR study milestones, typed on the way into
 # Bronze, replayed into Silver with COMPLETE_DELTA.
 #
-# The scenario: Elluminate exports one CSV snapshot per day containing every study,
+# The scenario: CDR exports one CSV snapshot per day containing every study,
 # and the pipeline has not run for a week. Seven snapshots are waiting, which is the
 # backlog COMPLETE_DELTA exists to replay rather than collapse into its newest state.
 #
