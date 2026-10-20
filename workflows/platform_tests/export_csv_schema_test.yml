@@ -1,0 +1,108 @@
+# End-to-end platform test: a schema's tables and views exported to CSV in the
+# preparation path (gh #42).
+#
+# The test owns its schema, export_testing, so a whole-schema export sees only the two
+# tables and the view it creates. The first export takes the whole schema with plain
+# names; the second names a subset in mixed case, with names stamped in Europe/Berlin,
+# and must replace the first export's files.
+
+base: &base ${workspace.file_path}/platform_tests/export_csv_schema_test
+cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/export_csv_schema_test/0_cleanup.py
+generate_script: &generate_script ${workspace.file_path}/platform_tests/export_csv_schema_test/1_generate_data.py
+whole_check: &whole_check ${workspace.file_path}/platform_tests/export_csv_schema_test/2_validate_whole.py
+subset_check: &subset_check ${workspace.file_path}/platform_tests/export_csv_schema_test/3_validate_subset.py
+
+catalog: &catalog ${var.platform_tests_catalog}
+
+shared_params: &shared_params
+  catalog: *catalog
+  env: "${bundle.target}"
+  export.name: PLATFORM_TEST
+  export.schema_name: export_testing
+  export.preparation_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/exports/
+
+whole_params: &whole_params
+  <<: *shared_params
+  export.stamp_format: "%Y%m%dT%H%M%S"
+
+subset_params: &subset_params
+  <<: *shared_params
+  export.tables: "site, CONTACT"
+  export.stamp_format: "%Y-%m-%d"
+  export.timezone: Europe/Berlin
+  export.with_ts_object_names: true
+
+identity: &identity
+  __workflow_id: "{{job.id}}"
+  __workflow_run_id: "{{job.run_id}}"
+  __task_key: "{{task.name}}"
+  __task_run_id: "{{task.run_id}}"
+
+resources:
+  jobs:
+    export_csv_schema_test:
+      name: export_csv_schema_test
+      max_concurrent_runs: 1
+
+      job_clusters:
+        - job_cluster_key: &cluster export_csv_schema_test_cluster
+          new_cluster:
+            spark_version: 15.4.x-scala2.12
+            node_type_id: m7gd.large
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.master: "local[*]"
+              spark.databricks.cluster.profile: singleNode
+            custom_tags:
+              ResourceClass: SingleNode
+
+      tasks:
+        - task_key: &clean clean_start
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *cleanup_script
+            parameters: [*base, *catalog, "${bundle.target}"]
+
+        - task_key: &generate generate_data
+          depends_on: [{task_key: *clean}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *generate_script
+            parameters: [*base, *catalog, "${bundle.target}"]
+
+        - task_key: &export_whole export_whole_schema
+          depends_on: [{task_key: *generate}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame-export
+            named_parameters:
+              <<: [*whole_params, *identity]
+
+        - task_key: &whole_validation whole_validation
+          depends_on: [{task_key: *export_whole}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *whole_check
+            parameters: [*base, *catalog, "${bundle.target}"]
+
+        - task_key: &export_subset export_subset
+          depends_on: [{task_key: *whole_validation}]
+          job_cluster_key: *cluster
+          libraries:
+            - whl: ../../dist/*.whl
+          python_wheel_task:
+            package_name: dbx-flame
+            entry_point: dbx-flame-export
+            named_parameters:
+              <<: [*subset_params, *identity]
+
+        - task_key: subset_validation
+          depends_on: [{task_key: *export_subset}]
+          job_cluster_key: *cluster
+          spark_python_task:
+            python_file: *subset_check
+            parameters: [*base, *catalog, "${bundle.target}"]

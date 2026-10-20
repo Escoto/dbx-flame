@@ -11,7 +11,7 @@
     {
       "uri": "https://r.testing.uri/000/0",
       "related_cro": [
-        "0-6YSHTL9 [IQVIA]"
+        "0-6YSHTL9 [CRO2]"
       ],
       "status": "ACTIVE",
       "street_address": "12 American Road.",
@@ -22,7 +22,7 @@
     {
       "uri": "https://r.testing.com/111/1",
       "related_cro": [
-        "0-NS85AS [SYNEOS]"
+        "0-NS85AS [CRO1]"
       ],
       "status": "ACTIVE",
       "street_address": "No.090 Zhuodaoquan, Hongshan",
@@ -32,8 +32,8 @@
     {
       "uri": "https://r.testing.com/222/2",
       "related_cro": [
-        "0-NA7SH0 [ICON]",
-        "0-NAP01W [SYNEOS]"
+        "0-NA7SH0 [CRO]",
+        "0-NAP01W [CRO1]"
       ],
       "status": "ACTIVE",
       "street_address": "Elsenheimerstr 17",

@@ -6,8 +6,9 @@ import json
 import os
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from pyspark.sql import SparkSession
 
@@ -68,6 +69,12 @@ def _write_csv(spark: SparkSession, source: str, path: str) -> int:
     return spark.read.options(**_CSV_OPTIONS).csv(path, multiLine=True).count()
 
 
+def _file_name(name: str, stamp: str, with_stamp: bool) -> str:
+    # Uppercase as our table names are; Unity Catalog hands them back in lowercase.
+    stem = f"{name.upper()}_{stamp}" if with_stamp else name.upper()
+    return f"{stem}.csv"
+
+
 def export_objects(
     spark: SparkSession,
     schema: str,
@@ -75,9 +82,10 @@ def export_objects(
     stamp: str,
     logger_for: Callable[[str], AuditLogger],
 ) -> None:
-    """Export each object to {preparation_path}/{schema_name}/{object}_{stamp}.csv.
+    """Export each object to {preparation_path}/{schema_name}/{OBJECT}.csv.
 
-    Every object is attempted; the run fails afterwards if any of them did.
+    The name carries _{stamp} with export.with_ts_object_names. Every object is attempted;
+    the run fails afterwards if any of them did.
     """
     objects = _objects(spark, schema, config.tables)
 
@@ -92,7 +100,8 @@ def export_objects(
         source = f"{schema}.`{name}`"
         logger = logger_for(source)
         try:
-            rows = _write_csv(spark, source, os.path.join(folder, f"{name}_{stamp}.csv"))
+            path = os.path.join(folder, _file_name(name, stamp, config.with_ts_object_names))
+            rows = _write_csv(spark, source, path)
             logger.kpi(Kpi.ROWS_EXPORTED, rows, description=f"{source} exported to {folder}")
         except Exception as exc:
             logger.error(name="object_export_failure", source=_SOURCE, description=str(exc))
@@ -124,14 +133,15 @@ def main() -> None:
             ),
         )
 
-    # Taken once, in UTC, so every file of the run carries the same stamp.
-    stamp = datetime.now(timezone.utc).strftime(config.export.stamp_format)
+    # Taken once, so every name of the run carries the same stamp.
+    now = datetime.now(ZoneInfo(config.export.timezone))
+    stamp = now.strftime(config.export.stamp_format)
 
     # Unguarded, as in run.py: the first audit write proves the audit path before any work.
     logger.info(
         name="export_start",
         source=_SOURCE,
-        description=f"Exporting {schema} with stamp {stamp}",
+        description=f"Exporting {schema} as {config.export.name} with stamp {stamp}",
         metadata=json.dumps(params, sort_keys=True),
     )
     logger.flush()

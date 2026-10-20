@@ -43,3 +43,6 @@ Thumbs.db
 
 /.claude/settings.local.json
 /.claude/worktrees/
+
+# Ignore feature descriptions in progress
+requirements*.md

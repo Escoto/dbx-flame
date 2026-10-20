@@ -55,6 +55,7 @@ Every one follows the same shape:
 | `append_table_delta_read_test` | `delta_read` of a plain table on its `MODIFIED_AT`: the first read lands every row, the second only the updated and added ones, each under its own `TABLE:` stamp; Silver (UPSERT) holds the newest state per key, each row naming the read that brought it in, and keeps the row deleted at the source |
 | `append_table_cross_catalog_test` | APPEND from a Bronze in one catalog into a Silver in another (`source.catalog`): Silver's checkpoint lives in the consumer's catalog, and a second round receives only the new export |
 | `complete_delta_json_anchor_test` | Full + delta feeds after a pause: a backlog with two full exports resyncs Silver to the newest, and the delta feed, anchored on the `__ANCHOR_DT` both Bronze feeds stamp, applies only what came after it |
+| `export_csv_schema_test` | The export task over a schema of its own: the whole schema (two tables and a view) as `<OBJECT>.csv`, then a subset named in mixed case as `<OBJECT>_<date>.csv` dated in Europe/Berlin, replacing the first export. Asserts the exact values, quotes, line breaks, NULL against `""`, and ISO dates and timestamps |
 
 Validation scripts assert on **data** — row counts, history chains, flags, validity windows,
 and the actual typed values — and on **schema**, including that no internal helper column
@@ -80,6 +81,7 @@ SQL and grants, is [07_workspace_setup.md](07_workspace_setup.md).
 | `<catalog>_<target>.functional_testing.source_data` (volume) | inbound files and checkpoints |
 | `monitoring_<target>.audit` (schema) | the audit table, created on first run |
 | `<consumer_catalog>_<target>.functional_testing` and its `source_data` volume | `append_table_cross_catalog_test`'s Silver and checkpoints |
+| `<catalog>_<target>.export_testing` (schema) | `export_csv_schema_test`'s tables and view, alone, so a whole-schema export sees nothing else |
 
 Every test script takes `[base, catalog, env, ...]` and builds the catalog the same way.
 

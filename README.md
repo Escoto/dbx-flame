@@ -92,6 +92,7 @@ Every other combination, and the traps a valid config doesn't rule out, are in
 7. [06_roadmap.md](docs/06_roadmap.md) — phased implementation plan and current status
 8. [07_workspace_setup.md](docs/07_workspace_setup.md) — workspace setup recipe: catalog naming, schemas, volumes, grants
 9. [08_usage.md](docs/08_usage.md) — which source, strategy and verb to combine, and the traps
+10. [09_export.md](docs/09_export.md) — the export task: file naming and the CSV format
 
 ## Development
 
@@ -132,7 +133,9 @@ any data. Schema: [00_overview.md](docs/00_overview.md#glossary).
 ## Status
 
 Start, Pipeline (CSV + JSON + table), Typing, Policies (DQX), and all five write verbs are
-implemented and tested. The SAS origin and the Gold example view are not implemented yet.
+implemented and tested. The export task writes a schema's objects to CSV; its checksums,
+manifest and delivery are in progress (gh #40). The SAS origin and the Gold example view
+are not implemented yet.
 Full phase-by-phase status:
 [06_roadmap.md](docs/06_roadmap.md).
 

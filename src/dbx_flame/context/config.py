@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -286,11 +287,34 @@ _UNSAFE_FILE_CHARS = frozenset('/\\:*?"<>|')
 
 
 class ExportConfig(BaseModel):
+    # The delivery's name, e.g. CRO: it names the package a delivery is sent in.
+    name: str
     schema_name: str
     # Empty means every table and view in the schema.
     tables: list[str] = []
     preparation_path: str
     stamp_format: str
+    # The zone the stamp is taken in: a receiver dates its deliveries in its own time.
+    timezone: str = "UTC"
+    with_ts_object_names: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def _name_is_an_uppercase_file_name_part(cls, value: str) -> str:
+        if not value or value != value.upper() or _UNSAFE_FILE_CHARS & set(value):
+            raise ValueError(f"expected an UPPERCASE file name part, e.g. CRO, got '{value}'")
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_is_known(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise ValueError(
+                f"expected an IANA time zone, e.g. Europe/Berlin, got '{value}'"
+            ) from None
+        return value
 
     @field_validator("stamp_format")
     @classmethod

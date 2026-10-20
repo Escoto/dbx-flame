@@ -84,7 +84,11 @@ Don't create `logs`: the first run creates it with the right columns.
 CREATE CATALOG IF NOT EXISTS dbx_flame_dev;
 CREATE SCHEMA  IF NOT EXISTS dbx_flame_dev.functional_testing;
 CREATE VOLUME  IF NOT EXISTS dbx_flame_dev.functional_testing.source_data;
+CREATE SCHEMA  IF NOT EXISTS dbx_flame_dev.export_testing;
 ```
+
+`export_testing` holds only the export test's objects: it exports the whole schema, so
+anything else there would end up in its files.
 
 The tests use one volume for two roots, and create the folders under them themselves:
 
@@ -92,6 +96,7 @@ The tests use one volume for two roots, and create the folders under them themse
 |---|---|---|
 | `/Volumes/dbx_flame_dev/functional_testing/source_data/inbound/` | `source.path` | the generated input files |
 | `/Volumes/dbx_flame_dev/functional_testing/source_data/metadata/` | `metadata_path` | checkpoints and schema hints |
+| `/Volumes/dbx_flame_dev/functional_testing/source_data/exports/` | `export.preparation_path` | the export test's files |
 
 ## 4 · Grant access
 
@@ -106,6 +111,8 @@ GRANT USE SCHEMA, CREATE TABLE, SELECT, MODIFY ON SCHEMA monitoring_dev.audit TO
 GRANT USE CATALOG ON CATALOG dbx_flame_dev TO `<principal>`;
 GRANT USE SCHEMA, CREATE TABLE, SELECT, MODIFY, APPLY TAG, READ VOLUME, WRITE VOLUME
   ON SCHEMA dbx_flame_dev.functional_testing TO `<principal>`;
+GRANT USE SCHEMA, CREATE TABLE, SELECT, MODIFY
+  ON SCHEMA dbx_flame_dev.export_testing TO `<principal>`;
 ```
 
 `APPLY TAG` is there because the framework tags every table it writes. It also sets table

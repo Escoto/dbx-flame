@@ -11,7 +11,7 @@
     {
       "uri": "https://r.testing.uri/000/0",
       "related_cro": [
-        "0-6YSHTL9 [IQVIA]"
+        "0-6YSHTL9 [CRO2]"
       ],
       "status": "INACTIVE",
       "street_address": "12th American Road.",
@@ -23,7 +23,7 @@
     {
       "uri": "https://r.testing.com/333/3",
       "related_cro": [
-        "0-IN6SH2 [IQVIA]"
+        "0-IN6SH2 [CRO2]"
       ],
       "status": "ACTIVE",
       "street_address": "No.333 Zhuodaoquan, Hongshan",

@@ -78,7 +78,7 @@ Gold is SQL, not a verb. The framework's job ends at Silver.
 | **Delta read** | `source.increment_strategy: delta_read`: only the rows of a table we didn't create that changed since the last run, found through the source column named by `source.anchor_dt`. Stamped like a full read, but never a complete snapshot: deletes are invisible. |
 | **Silver metadata contract** | The framework-managed columns: `__SOURCE`, `__LAST_MODIFIED_DT`, `__START_DATE`, `__END_DATE`, `__CURRENT_FLAG` (`Y`/`N`), `__DELETED_FLAG` (`Y`/`N`), `__EXPORT_DATE`, and `__ANCHOR_DT` when `source.anchor_dt` is set. |
 | **Audit log contract** | Every run that passes config validation logs to `` `monitoring_{env}`.`audit`.`logs` `` with a fixed schema (`__uuid`, `__workflow_id`, `__workflow_run_id`, `__task_key`, `__task_run_id`, `time_stamp`, `type`, `catalog`, `schema`, `table`, `name`, `source`, `total`, `description`, `metadata`). KPI events use `source="KPI"`. A run that fails config validation stops before the logger exists: its `ConfigValidationError`, listing every invalid parameter, is only in the task's driver log and run output. |
-| **Medallion layers** | Inbound (raw files on a Volume) → Bronze (raw Delta) → Silver (typed, deduplicated, history-tracked) → Gold (materialized views over Silver, see [Gold](#gold)) → Export (files delivered to a consumer by a separate export task, planned in gh #40). |
+| **Medallion layers** | Inbound (raw files on a Volume) → Bronze (raw Delta) → Silver (typed, deduplicated, history-tracked) → Gold (materialized views over Silver, see [Gold](#gold)) → Export (files delivered to a consumer by a separate export task, see [09_export.md](09_export.md)). |
 
 ## Document map
 
@@ -92,3 +92,4 @@ Gold is SQL, not a verb. The framework's job ends at Silver.
 | [06_roadmap.md](06_roadmap.md) | Phased implementation plan and current status |
 | [07_workspace_setup.md](07_workspace_setup.md) | Catalogs, schemas, volumes and grants a workspace needs, as a recipe |
 | [08_usage.md](08_usage.md) | Which source, increment strategy and verb to combine at each step, and the traps |
+| [09_export.md](09_export.md) | The export task: what a run does, file naming and the CSV format |
