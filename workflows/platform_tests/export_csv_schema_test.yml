@@ -1,10 +1,11 @@
 # End-to-end platform test: a schema's tables and views exported to CSV in the
-# preparation path (gh #42).
+# preparation path (gh #42), with columns excluded and renamed (gh #43).
 #
 # The test owns its schema, export_testing, so a whole-schema export sees only the two
 # tables and the view it creates. The first export takes the whole schema with plain
-# names; the second names a subset in mixed case, with names stamped in Europe/Berlin,
-# and must replace the first export's files.
+# names and leaves the framework column out; the second names a subset in mixed case,
+# with names stamped in Europe/Berlin, keeps the framework column, excludes and renames
+# columns, and must replace the first export's files.
 
 base: &base ${workspace.file_path}/platform_tests/export_csv_schema_test
 cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/export_csv_schema_test/0_cleanup.py
@@ -31,6 +32,11 @@ subset_params: &subset_params
   export.stamp_format: "%Y-%m-%d"
   export.timezone: Europe/Berlin
   export.with_ts_object_names: true
+  export.exclude_metadata: false
+  export.renames.SITE.SITE_ID: ID
+  export.excludes.CONTACT: EMAIL
+  # SITE_DE is in the schema but not exported: its setting is skipped with a warning.
+  export.excludes.SITE_DE: NAME
 
 identity: &identity
   __workflow_id: "{{job.id}}"

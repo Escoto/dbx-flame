@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from pyspark.sql import functions as F
 
+from dbx_flame.mechanics.columns import is_framework_column
 from dbx_flame.policies.platform import PlatformPolicy, violate
 from dbx_flame.typecast.models import CastSpec, load_cast_configuration
 
@@ -19,7 +20,6 @@ if TYPE_CHECKING:
     from dbx_flame.context.context import Context
 
 _STRING = "string"
-_METADATA_PREFIX = "__"
 _ORIGINAL_PREFIX = "_orig_"
 _FORMATTED_TYPES: dict[str, Callable[..., Column]] = {
     "date": F.to_date,
@@ -30,11 +30,6 @@ _SOURCE = "typecast"
 
 class MissingColumnException(Exception):
     """Raised when the cast config names a column the DataFrame does not have."""
-
-
-def _is_metadata(column: str) -> bool:
-    """Framework columns (__EXPORT_DATE, __SOURCE, ...) are exempt from user casts."""
-    return column.startswith(_METADATA_PREFIX)
 
 
 def _quoted(column: str) -> Column:
@@ -62,8 +57,8 @@ def _order(df: DataFrame, casts: dict[str, CastSpec]) -> list[str]:
     The config doubles as a column ordering, which is why it is worth honouring even
     for the columns it only names rather than retypes.
     """
-    untouched = [c for c in df.columns if c not in casts and not _is_metadata(c)]
-    metadata = [c for c in df.columns if _is_metadata(c)]
+    untouched = [c for c in df.columns if c not in casts and not is_framework_column(c)]
+    metadata = [c for c in df.columns if is_framework_column(c)]
     return list(casts) + untouched + metadata
 
 
@@ -114,7 +109,8 @@ class CastService:
             missing: list[str] = []
             exempt: list[str] = []
             for configured in configuration.columns:
-                if _is_metadata(configured.name):
+                # Framework columns are exempt from user casts.
+                if is_framework_column(configured.name):
                     exempt.append(configured.name)
                 elif configured.name not in available:
                     missing.append(configured.name)

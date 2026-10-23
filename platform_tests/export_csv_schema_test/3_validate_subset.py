@@ -1,6 +1,8 @@
 """Step 3 — a subset named in mixed case, stamped with the date in Europe/Berlin.
 
-The run clears the schema's folder first, so the whole export's files must be gone.
+The run clears the schema's folder first, so the whole export's files must be gone. It
+keeps framework columns, renames SITE_ID in SITE and leaves EMAIL out of CONTACT; the
+setting for SITE_DE, which isn't exported, is skipped.
 """
 
 import sys
@@ -11,7 +13,13 @@ from zoneinfo import ZoneInfo
 # the workflow passes this script's directory as the first parameter.
 sys.path.append(sys.argv[1])
 
-from _shared import expect_contact, expect_site, exported_files  # noqa: E402
+from _shared import (  # noqa: E402
+    CONTACT_COLUMNS,
+    SITE_COLUMNS,
+    expect_contact,
+    expect_site,
+    exported_files,
+)
 
 files = exported_files()
 
@@ -24,7 +32,7 @@ candidates = [
 assert files in candidates, f"expected one of {candidates}, found {files}"
 
 contact, site = files
-expect_site(site)
-expect_contact(contact)
+expect_site(site, header=["ID", *SITE_COLUMNS[1:], "__SOURCE"])
+expect_contact(contact, header=CONTACT_COLUMNS[:2])
 
 print("subset export validated")

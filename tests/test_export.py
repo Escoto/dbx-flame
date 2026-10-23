@@ -35,14 +35,14 @@ def schema(spark):
         [(1, 'say "hi"'), (2, "line\nbreak"), (3, "  padded  "), (4, None), (5, "")],
         "ID INT, TEXT STRING",
     ).write.saveAsTable(f"`{name}`.`SUBJECTS`")
-    spark.createDataFrame([(10, "DE")], "ID INT, COUNTRY STRING").write.saveAsTable(
-        f"`{name}`.`SITES`"
-    )
+    spark.createDataFrame(
+        [(10, "DE", "sites.csv")], "ID INT, COUNTRY STRING, __SOURCE STRING"
+    ).write.saveAsTable(f"`{name}`.`SITES`")
     yield name
     spark.sql(f"DROP DATABASE IF EXISTS `{name}` CASCADE")
 
 
-def _config(schema, tmp_path, tables=(), with_ts=False):
+def _config(schema, tmp_path, tables=(), with_ts=False, **settings):
     return ExportConfig(
         name="CRO",
         schema_name=schema,
@@ -50,14 +50,28 @@ def _config(schema, tmp_path, tables=(), with_ts=False):
         preparation_path=str(tmp_path),
         stamp_format="%Y",
         with_ts_object_names=with_ts,
+        **settings,
     )
 
 
-def _export(spark, schema, tmp_path, tables=(), with_ts=False):
+def _export(spark, schema, tmp_path, tables=(), with_ts=False, **settings):
     loggers = defaultdict(MagicMock)
-    config = _config(schema, tmp_path, tables, with_ts)
+    config = _config(schema, tmp_path, tables, with_ts, **settings)
     export_objects(spark, f"`{schema}`", config, STAMP, loggers.__getitem__)
     return tmp_path / schema, loggers
+
+
+def _header(path):
+    with open(path, newline="", encoding="utf-8") as handle:
+        return next(csv.reader(handle))
+
+
+def _previous_export(tmp_path, schema):
+    """A file from an earlier run, which a refused run must leave in place."""
+    previous = tmp_path / schema / "previous_export.csv"
+    previous.parent.mkdir()
+    previous.write_text("kept")
+    return previous
 
 
 def _argv(params):
@@ -106,14 +120,71 @@ def test_export_of_named_objects_matches_names_in_any_case(spark, schema, tmp_pa
 
 
 def test_export_refuses_an_unknown_object_before_touching_the_folder(spark, schema, tmp_path):
-    previous = tmp_path / schema / "previous_export.csv"
-    previous.parent.mkdir()
-    previous.write_text("kept")
+    previous = _previous_export(tmp_path, schema)
 
     with pytest.raises(ValueError, match="not in .*: MISSING"):
         _export(spark, schema, tmp_path, tables=["SITES", "MISSING"])
 
     assert os.listdir(previous.parent) == ["previous_export.csv"]
+
+
+def test_export_leaves_framework_columns_out_by_default(spark, schema, tmp_path):
+    folder, _ = _export(spark, schema, tmp_path, tables=["SITES"])
+
+    assert _header(folder / "SITES.csv") == ["ID", "COUNTRY"]
+
+
+def test_export_keeps_framework_columns_when_asked(spark, schema, tmp_path):
+    folder, _ = _export(spark, schema, tmp_path, tables=["SITES"], exclude_metadata=False)
+
+    assert _header(folder / "SITES.csv") == ["ID", "COUNTRY", "__SOURCE"]
+
+
+def test_export_excludes_then_renames_columns_per_object(spark, schema, tmp_path):
+    """COUNTRY is excluded first, so renaming ID onto its name is no clash."""
+    folder, _ = _export(
+        spark,
+        schema,
+        tmp_path,
+        excludes={"sites": ["COUNTRY"]},
+        renames={"SITES": {"ID": "COUNTRY"}},
+    )
+
+    assert _header(folder / "SITES.csv") == ["COUNTRY"]
+    assert _header(folder / "SUBJECTS.csv") == ["ID", "TEXT"]
+
+
+@pytest.mark.parametrize(
+    ("settings", "message"),
+    [
+        # A mistyped exclude would deliver the very columns it meant to hold back.
+        ({"excludes": {"SITE": ["COUNTRY"]}}, "name objects not in .*: SITE"),
+        ({"renames": {"SITE": {"ID": "SITE_ID"}}}, "name objects not in .*: SITE"),
+        ({"excludes": {"SITES": ["COUNTRYY"]}}, "sites has no column\\(s\\): COUNTRYY"),
+        ({"renames": {"SITES": {"IDD": "SITE_ID"}}}, "sites has no column\\(s\\): IDD"),
+        ({"renames": {"SITES": {"ID": "COUNTRY"}}}, "more than one column named: COUNTRY"),
+        ({"excludes": {"SITES": ["ID", "COUNTRY"]}}, "sites would be exported without any"),
+    ],
+)
+def test_export_refuses_settings_that_miss_before_touching_the_folder(
+    spark, schema, tmp_path, settings, message
+):
+    previous = _previous_export(tmp_path, schema)
+
+    with pytest.raises(ValueError, match=message):
+        _export(spark, schema, tmp_path, **settings)
+
+    assert os.listdir(previous.parent) == ["previous_export.csv"]
+
+
+def test_export_skips_settings_of_an_object_it_does_not_export(spark, schema, tmp_path):
+    folder, loggers = _export(
+        spark, schema, tmp_path, tables=["SUBJECTS"], excludes={"SITES": ["COUNTRY"]}
+    )
+
+    assert os.listdir(folder) == ["SUBJECTS.csv"]
+    warning = loggers[f"`{schema}`.`sites`"].warning
+    assert warning.call_args.kwargs["name"] == "export_settings_skipped"
 
 
 def test_export_clears_only_its_own_schema_folder(spark, schema, tmp_path):
@@ -196,6 +267,48 @@ def test_export_config_loads_a_comma_separated_subset():
 def test_export_config_rejects(key, value, message):
     with pytest.raises(ConfigValidationError, match=message):
         load_config({**PARAMS, key: value}, ExportTaskConfig)
+
+
+def test_export_config_loads_excludes_and_renames_per_object():
+    params = {
+        **PARAMS,
+        "export.excludes.SITES": "COUNTRY, REGION",
+        "export.renames.SITES.ID": "SITE_ID",
+        "export.exclude_metadata": "false",
+    }
+
+    config = load_config(params, ExportTaskConfig).export
+
+    assert config.excludes == {"SITES": ["COUNTRY", "REGION"]}
+    assert config.renames == {"SITES": {"ID": "SITE_ID"}}
+    assert config.exclude_metadata is False
+
+
+@pytest.mark.parametrize(
+    ("settings", "message"),
+    [
+        (
+            {"export.excludes.SITES": "ID", "export.renames.sites.ID": "SITE_ID"},
+            "export.renames.sites renames excluded column\\(s\\): ID",
+        ),
+        # Framework columns are excluded by default.
+        ({"export.renames.SITES.__SOURCE": "FILE"}, "renames excluded column\\(s\\): __SOURCE"),
+        ({"export.renames.SITES.ID": " "}, "gives no new name for: ID"),
+    ],
+)
+def test_export_config_rejects_renames(settings, message):
+    with pytest.raises(ConfigValidationError, match=message):
+        load_config({**PARAMS, **settings}, ExportTaskConfig)
+
+
+def test_export_config_renames_framework_columns_it_keeps():
+    params = {
+        **PARAMS,
+        "export.exclude_metadata": "false",
+        "export.renames.SITES.__SOURCE": "FILE",
+    }
+
+    assert load_config(params, ExportTaskConfig).export.renames == {"SITES": {"__SOURCE": "FILE"}}
 
 
 def test_export_config_requires_a_name():

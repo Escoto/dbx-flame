@@ -89,6 +89,16 @@ def _coerce_bool(value: str) -> bool | None:
     return _BOOLEAN_VALUES.get(value.strip().lower())
 
 
+def _split_list(value: str) -> list[str]:
+    """'A, B' -> ['A', 'B']; an empty value is an empty list."""
+    return [] if value.strip() == "" else [item.strip() for item in value.split(",")]
+
+
+def _is_map_of_lists(annotation: Any) -> bool:
+    """dict[str, list[str]]: each dotted key under it carries a comma-separated list."""
+    return get_origin(annotation) is dict and get_origin(get_args(annotation)[1]) is list
+
+
 def _coerce_values(
     nested: dict[str, Any], model_class: type[BaseModel], path: str = ""
 ) -> tuple[dict[str, Any], list[str]]:
@@ -111,6 +121,11 @@ def _coerce_values(
         ):
             result[key], nested_errors = _coerce_values(value, annotation, full_path)
             errors.extend(nested_errors)
+        elif isinstance(value, dict) and _is_map_of_lists(annotation):
+            result[key] = {
+                name: _split_list(item) if isinstance(item, str) else item
+                for name, item in value.items()
+            }
         elif isinstance(value, str):
             if annotation is bool:
                 coerced = _coerce_bool(value)
@@ -119,10 +134,7 @@ def _coerce_values(
                 else:
                     result[key] = coerced
             elif get_origin(annotation) is list:
-                if value.strip() == "":
-                    result[key] = []
-                else:
-                    result[key] = [item.strip() for item in value.split(",")]
+                result[key] = _split_list(value)
             elif isinstance(annotation, type) and issubclass(annotation, enum.StrEnum):
                 result[key] = value.lower()
             else:
@@ -156,7 +168,7 @@ def load_config(
 
     Dotted keys are split into nested dicts. Coercion rules:
     - Booleans: true/false (any casing); any other value is an error
-    - Lists: comma-separated strings
+    - Lists: comma-separated strings, also as the values of a map (export.excludes.<object>)
     - Enums: case-insensitive
     - Unknown keys: rejected
 

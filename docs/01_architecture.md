@@ -39,9 +39,12 @@ dbx_flame/
 │   │   ├── audit_logger.py          #   buffered logger → `monitoring_{env}`.audit.logs
 │   │   ├── kpi.py                   #   KPI event helpers
 │   │   └── tagging.py               #   Unity Catalog table tagging
+│   ├── mechanics/
+│   │   └── columns.py               #   which columns are the framework's (__ prefix)
 │   └── entrypoints/
-│       ├── run.py                   #   single wheel entry point: params → Context → layers 2..5
-│       └── pipeline.py              #   drives the configured origin into the configured verb
+│       ├── run.py                   #   ingest entry point: params → Context → layers 2..5
+│       ├── pipeline.py              #   drives the configured origin into the configured verb
+│       └── export.py                #   export entry point: a schema's objects → CSV files
 └── tests/                           # pytest + chispa; fixtures
 ```
 

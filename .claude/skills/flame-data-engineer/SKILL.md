@@ -38,6 +38,7 @@ existing homes:
 | User data-quality rules | DQX ruleset, `PolicyRunner` in `policies/runner.py` |
 | Named preprocessors | `PREPROCESSORS` in `pipelines/preprocessors.py` |
 | Audit trail | `ctx.logger` (`observability/audit_logger.py`) |
+| Which columns are the framework's (`__`) | `is_framework_column` in `mechanics/columns.py` |
 
 **Registries over branching.** A new origin, verb, policy or preprocessor is a new entry
 in its registry, not a new `if` in the caller. Callers look the entry up.

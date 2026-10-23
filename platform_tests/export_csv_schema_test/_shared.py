@@ -33,8 +33,11 @@ SITE_ROWS = [
     ("S3", None, "", "2024-03-01", "2026-10-03T00:00:00Z"),
 ]
 SITE_COLUMNS = ["SITE_ID", "NAME", "COUNTRY", "OPENED", "UPDATED_AT"]
+# A framework column on every SITE row: left out unless export.exclude_metadata is off.
+SITE_SOURCE = "site_export.csv"
 
 CONTACT_ROWS = [(1, "S1", "a@example.org"), (2, "S2", "b@example.org")]
+CONTACT_COLUMNS = ["CONTACT_ID", "SITE_ID", "EMAIL"]
 CONTACT_SCHEMA = "CONTACT_ID int, SITE_ID string, EMAIL string"
 
 
@@ -54,9 +57,10 @@ def _read(name: str) -> tuple:
     return text, rows[0], sorted(rows[1:])
 
 
-def expect_site(name: str) -> None:
-    text, header, rows = _read(name)
-    assert header == SITE_COLUMNS, f"{name} header differs: {header}"
+def expect_site(name: str, header: list = SITE_COLUMNS) -> None:
+    """SITE's rows under header; a sixth column is the framework's __SOURCE."""
+    text, written_header, rows = _read(name)
+    assert written_header == header, f"{name} header differs: {written_header}"
     assert len(rows) == len(SITE_ROWS), f"{name} holds {len(rows)} rows: {rows}"
     for row, (site_id, site_name, country, opened, updated) in zip(rows, SITE_ROWS):
         assert row[:4] == [site_id, site_name or "", country, opened], f"{name} row: {row}"
@@ -64,14 +68,16 @@ def expect_site(name: str) -> None:
         written = datetime.fromisoformat(row[4])
         expected = datetime.fromisoformat(updated).astimezone(timezone.utc)
         assert written == expected, f"{name} {site_id} UPDATED_AT: {row[4]} != {updated}"
+        assert row[5:] == [SITE_SOURCE] * (len(header) - 5), f"{name} row: {row}"
     # csv.reader can't tell NULL from an empty string; the file must.
     assert '\nS3,,"",' in text, f"{name} must write NULL as empty and '' as \"\""
 
 
-def expect_contact(name: str) -> None:
-    _, header, rows = _read(name)
-    assert header == ["CONTACT_ID", "SITE_ID", "EMAIL"], f"{name} header differs: {header}"
-    expected = sorted([str(i), site, email] for i, site, email in CONTACT_ROWS)
+def expect_contact(name: str, header: list = CONTACT_COLUMNS) -> None:
+    """CONTACT's rows, holding only the leading columns header names."""
+    _, written_header, rows = _read(name)
+    assert written_header == header, f"{name} header differs: {written_header}"
+    expected = sorted([str(i), site, email][: len(header)] for i, site, email in CONTACT_ROWS)
     assert rows == expected, f"{name} rows differ: {rows}"
 
 
