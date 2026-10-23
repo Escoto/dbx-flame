@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from dbx_flame.mechanics.columns import is_framework_column
+
 
 class Origin(StrEnum):
     CSV = "csv"
@@ -297,6 +299,12 @@ class ExportConfig(BaseModel):
     # The zone the stamp is taken in: a receiver dates its deliveries in its own time.
     timezone: str = "UTC"
     with_ts_object_names: bool = False
+    # Framework (__) columns trace our own processing, not the receiver's data.
+    exclude_metadata: bool = True
+    # export.excludes.<object>: "A, B" leaves those columns out of that object's file.
+    excludes: dict[str, list[str]] = {}
+    # export.renames.<object>.<column>: <name> names the column so in that object's file.
+    renames: dict[str, dict[str, str]] = {}
 
     @field_validator("name")
     @classmethod
@@ -327,6 +335,31 @@ class ExportConfig(BaseModel):
                 f"e.g. %Y%m%dT%H%M%S, got '{value}'"
             )
         return value
+
+    @model_validator(mode="after")
+    def _renames_name_kept_columns(self) -> "ExportConfig":
+        """Excludes apply first, so renaming an excluded column would silently do nothing."""
+        excluded = {name.lower(): set(columns) for name, columns in self.excludes.items()}
+        problems: list[str] = []
+        for name, renames in self.renames.items():
+            dropped = [
+                column
+                for column in renames
+                if column in excluded.get(name.lower(), set())
+                or (self.exclude_metadata and is_framework_column(column))
+            ]
+            if dropped:
+                problems.append(
+                    f"export.renames.{name} renames excluded column(s): {', '.join(dropped)}"
+                )
+            unnamed = [column for column, new in renames.items() if not new.strip()]
+            if unnamed:
+                problems.append(
+                    f"export.renames.{name} gives no new name for: {', '.join(unnamed)}"
+                )
+        if problems:
+            raise ValueError("; ".join(problems))
+        return self
 
 
 class ExportTaskConfig(BaseModel):

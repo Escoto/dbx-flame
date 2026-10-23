@@ -44,7 +44,7 @@ black leaves alone.
 
 Five layers, each reaching the next only through a typed `Context` and a DataFrame:
 Start (`context/`) → Pipeline (`pipelines/`) → Typing (`typecast/`) → Policies
-(`policies/`) → Output (`output/`). Cross-cutting: `observability/`, `entrypoints/`.
+(`policies/`) → Output (`output/`). Cross-cutting: `observability/`, `mechanics/`, `entrypoints/`.
 
 A layer never reads raw task parameters, only the validated `Context`. Write verbs declare
 their `Requirements` and readers their increment strategies; Start validates each

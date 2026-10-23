@@ -12,6 +12,7 @@ from _shared import (  # noqa: E402
     CONTACT_TABLE,
     SITE_COLUMNS,
     SITE_ROWS,
+    SITE_SOURCE,
     SITE_TABLE,
     SITE_VIEW,
     table,
@@ -27,6 +28,7 @@ site = (
     spark.createDataFrame(SITE_ROWS, ", ".join(f"{name} string" for name in SITE_COLUMNS))
     .withColumn("OPENED", F.col("OPENED").cast("date"))
     .withColumn("UPDATED_AT", F.col("UPDATED_AT").cast("timestamp"))
+    .withColumn("__SOURCE", F.lit(SITE_SOURCE))
 )
 site.write.format("delta").saveAsTable(table(SITE_TABLE))
 

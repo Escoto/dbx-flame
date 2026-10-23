@@ -330,7 +330,13 @@ export.preparation_path: /Volumes/mdm_dev/gold_cro/exports/  # str, required
 export.stamp_format: "%Y-%m-%d"   # str, required; a strftime format
 export.timezone: Europe/Berlin    # str, default UTC; the zone the stamp is taken in
 export.with_ts_object_names: false  # bool, default false; SITE_<stamp>.csv instead of SITE.csv
+export.exclude_metadata: true     # bool, default true; leaves every framework (__) column out
+export.excludes.SITE: "REGION, NOTES"  # list, per object; columns left out of SITE.csv
+export.renames.SITE.SITE_ID: ID   # str, per object and column; SITE_ID is named ID in SITE.csv
 ```
+
+Excludes apply before renames. What the column settings do:
+[09_export.md](09_export.md#3-columns).
 
 Rejected at Start:
 
@@ -340,4 +346,9 @@ Rejected at Start:
 - `export.stamp_format` without a `%` directive (every run would carry the same stamp), or
   one that renders a character a file name can't carry;
 - `export.preparation_path` outside a Volume of `{catalog}_{env}`, or above the Volume
-  itself: a run clears a folder under it.
+  itself: a run clears a folder under it;
+- `export.renames` of a column the same object excludes, including a framework column
+  while `export.exclude_metadata` is on, or onto an empty name.
+
+Names the column settings use are checked against the schema when the run starts, before
+anything is written: [09_export.md](09_export.md#2-what-a-run-does).

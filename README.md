@@ -133,7 +133,8 @@ any data. Schema: [00_overview.md](docs/00_overview.md#glossary).
 ## Status
 
 Start, Pipeline (CSV + JSON + table), Typing, Policies (DQX), and all five write verbs are
-implemented and tested. The export task writes a schema's objects to CSV; its checksums,
+implemented and tested. The export task writes a schema's objects to CSV, leaving out or renaming
+columns; its checksums,
 manifest and delivery are in progress (gh #40). The SAS origin and the Gold example view
 are not implemented yet.
 Full phase-by-phase status:
