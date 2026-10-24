@@ -7,18 +7,32 @@ import sys
 sys.path.append(sys.argv[1])
 
 from _shared import (  # noqa: E402
+    data_files,
     expect_contact,
+    expect_manifest,
     expect_site,
     expect_site_view,
     exported_files,
 )
 
 files = exported_files()
-# Uppercase although Unity Catalog lists them in lowercase; no staging folder left behind.
-assert files == ["CONTACT.csv", "SITE.csv", "SITE_DE.csv"], f"unexpected files: {files}"
+# Uppercase although Unity Catalog lists them in lowercase.
+data = data_files(files)
+assert data == ["CONTACT.csv", "SITE.csv", "SITE_DE.csv"], f"unexpected files: {files}"
+# A checksum beside each, plus the manifest and its own: no staging folder left behind.
+assert len(files) == 8, f"unexpected files: {files}"
 
 expect_site("SITE.csv")
 expect_contact("CONTACT.csv")
 expect_site_view("SITE_DE.csv")
+expect_manifest(
+    files,
+    "sha256",
+    {
+        "CONTACT": ("MANAGED", True, 2, "CONTACT.csv"),
+        "SITE": ("MANAGED", True, 3, "SITE.csv"),
+        "SITE_DE": ("VIEW", False, 1, "SITE_DE.csv"),
+    },
+)
 
 print("whole-schema export validated")

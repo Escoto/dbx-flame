@@ -328,6 +328,7 @@ export.schema_name: gold_cro      # str, required; the schema whose objects are 
 export.tables: "SITE, CONTACT"    # list; empty → every table and view in the schema
 export.preparation_path: /Volumes/mdm_dev/gold_cro/exports/  # str, required
 export.stamp_format: "%Y-%m-%d"   # str, required; a strftime format
+export.checksum: sha256           # md5 | sha256 | sha512, required; every file's checksum
 export.timezone: Europe/Berlin    # str, default UTC; the zone the stamp is taken in
 export.with_ts_object_names: false  # bool, default false; SITE_<stamp>.csv instead of SITE.csv
 export.exclude_metadata: true     # bool, default true; leaves every framework (__) column out
@@ -343,6 +344,7 @@ Rejected at Start:
 - `export.name` that isn't UPPERCASE, or holds a character a file name can't carry
   (`/ \ : * ? " < > |`);
 - `export.timezone` that isn't an IANA time zone name;
+- `export.checksum` that isn't `md5`, `sha256` or `sha512`, or is missing;
 - `export.stamp_format` without a `%` directive (every run would carry the same stamp), or
   one that renders a character a file name can't carry;
 - `export.preparation_path` outside a Volume of `{catalog}_{env}`, or above the Volume

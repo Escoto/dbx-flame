@@ -6,8 +6,8 @@ verb: the ingest flow (typing, policies, dedup, provenance) doesn't apply, and o
 handles many objects. Objects are exported as they are, so prepare them in Gold first;
 the only shaping is leaving columns out and renaming them.
 
-Today a run builds the files in the preparation path. Checksums and the manifest
-(gh #44) and delivery to a destination (gh #45) follow; the epic is gh #40.
+Today a run builds the files, their checksums and a manifest in the preparation path.
+Delivery to a destination (gh #45) follows; the epic is gh #40.
 
 ## 1. A task
 
@@ -24,6 +24,7 @@ Today a run builds the files in the preparation path. Checksums and the manifest
       export.preparation_path: /Volumes/mdm_${bundle.target}/gold_cro/exports/
       export.stamp_format: "%Y-%m-%d"
       export.timezone: Europe/Berlin
+      export.checksum: sha256
 ```
 
 The settings, and what Start rejects, are in
@@ -44,20 +45,28 @@ The settings, and what Start rejects, are in
 4. **Clears `{preparation_path}/{schema_name}`**, only that folder: the preparation path
    may hold other schemas' exports. What a run writes stays there afterwards, for
    inspection.
-5. **Writes one CSV per object**, named after the object in uppercase:
+5. **Pins every Delta table to its current version** (a `MANAGED` or `EXTERNAL` table
+   stored as Delta), so a commit landing mid-export reaches neither its file nor its
+   count. Anything else, a view, materialized view or foreign table, has no time travel
+   and is exported as read; every one of them but a view is logged as
+   `object_not_versioned`.
+6. **Writes one CSV per object**, named after the object in uppercase:
 
    | `export.with_ts_object_names` | File |
    |---|---|
    | `false` (default) | `SITE.csv` |
    | `true` | `SITE_2026-10-20.csv` |
 
-6. **Attempts every object.** One that fails, such as a view whose source is gone, is
+7. **Seals each file** with a checksum beside it and counts its rows, both from one read
+   of the file: see [4](#4-checksums-and-the-manifest). A pinned table whose file holds
+   a different number of rows than its version fails that object (`row_count_mismatch`).
+8. **Attempts every object.** One that fails, such as a view whose source is gone, is
    logged against that object (`object_export_failure`) and the run fails once all were
    attempted, keeping the files of the ones that succeeded.
+9. **Writes the manifest** of the objects exported, with its own checksum.
 
 The audit log gets `export_start` and `export_complete` (or `export_failure`) for the run,
-and, per object, a `rows_exported` KPI counted from the written file, not from a second
-read of the object.
+and, per object, a `rows_exported` KPI counted from the written file.
 
 ## 3. Columns
 
@@ -80,7 +89,30 @@ anything is written when a setting names an unknown object or column, when two c
 a file would share a name, or when an object would be left without any column. Column
 names are matched as written (gh #66).
 
-## 4. CSV format
+## 4. Checksums and the manifest
+
+Every file gets a checksum file beside it in the task's `export.checksum` algorithm, named
+after the file's stem with the algorithm as extension: `SITE.csv` → `SITE.sha256`. It
+holds the bare hash only, exactly what `sha256sum` (or `md5sum`, `sha512sum`) prints for
+the file without its file name: no spaces, no line break.
+
+The manifest, `<NAME>_MANIFEST_<stamp>.csv` with its own checksum file, is always written
+and always stamped. It lists every object exported, once, an empty one with `row_count` 0:
+
+| Column | Holds |
+|---|---|
+| `object` | the object's name, uppercase |
+| `object_type` | its Unity Catalog table type, as `information_schema.tables` names it: `MANAGED`, `EXTERNAL`, `VIEW`, `MATERIALIZED_VIEW`, `FOREIGN`, ... |
+| `version` | the Delta version the file holds; empty for an object exported as read |
+| `row_count` | the rows in the file, header excluded |
+| `export_file_name` | the CSV's file name |
+| `checksum` | the CSV's hash, as in its checksum file |
+
+The rows are counted from the file itself, in the same read that hashes it, so the count
+proves what the file holds rather than what was meant to go into it. An object that
+failed is not listed; its failure is in the audit log, and the run fails.
+
+## 5. CSV format
 
 Fixed, not configurable:
 

@@ -68,6 +68,14 @@ class SnapshotScope(StrEnum):
     FULL = "full"
 
 
+class ChecksumAlgorithm(StrEnum):
+    """Named as hashlib names them, so a value is also the checksum file's extension."""
+
+    MD5 = "md5"
+    SHA256 = "sha256"
+    SHA512 = "sha512"
+
+
 class EventTimeConfig(BaseModel):
     """A date column, plus the format to parse it with when it is stored as a string."""
 
@@ -296,6 +304,8 @@ class ExportConfig(BaseModel):
     tables: list[str] = []
     preparation_path: str
     stamp_format: str
+    # No default: a delivery names the algorithm its receiver verifies with.
+    checksum: ChecksumAlgorithm
     # The zone the stamp is taken in: a receiver dates its deliveries in its own time.
     timezone: str = "UTC"
     with_ts_object_names: bool = False

@@ -16,7 +16,9 @@ sys.path.append(sys.argv[1])
 from _shared import (  # noqa: E402
     CONTACT_COLUMNS,
     SITE_COLUMNS,
+    data_files,
     expect_contact,
+    expect_manifest,
     expect_site,
     exported_files,
 )
@@ -29,10 +31,16 @@ candidates = [
     [f"CONTACT_{day:%Y-%m-%d}.csv", f"SITE_{day:%Y-%m-%d}.csv"]
     for day in (today, today - timedelta(days=1))
 ]
-assert files in candidates, f"expected one of {candidates}, found {files}"
+data = data_files(files)
+assert data in candidates, f"expected one of {candidates}, found {files}"
 
-contact, site = files
+contact, site = data
 expect_site(site, header=["ID", *SITE_COLUMNS[1:], "__SOURCE"])
 expect_contact(contact, header=CONTACT_COLUMNS[:2])
+expect_manifest(
+    files,
+    "md5",
+    {"CONTACT": ("MANAGED", True, 2, contact), "SITE": ("MANAGED", True, 3, site)},
+)
 
 print("subset export validated")

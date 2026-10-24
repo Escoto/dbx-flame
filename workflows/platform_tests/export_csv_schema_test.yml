@@ -5,7 +5,8 @@
 # tables and the view it creates. The first export takes the whole schema with plain
 # names and leaves the framework column out; the second names a subset in mixed case,
 # with names stamped in Europe/Berlin, keeps the framework column, excludes and renames
-# columns, and must replace the first export's files.
+# columns, and must replace the first export's files. Both check every file's checksum
+# (sha256, then md5) and the manifest listing each object (gh #44).
 
 base: &base ${workspace.file_path}/platform_tests/export_csv_schema_test
 cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/export_csv_schema_test/0_cleanup.py
@@ -25,12 +26,14 @@ shared_params: &shared_params
 whole_params: &whole_params
   <<: *shared_params
   export.stamp_format: "%Y%m%dT%H%M%S"
+  export.checksum: sha256
 
 subset_params: &subset_params
   <<: *shared_params
   export.tables: "site, CONTACT"
   export.stamp_format: "%Y-%m-%d"
   export.timezone: Europe/Berlin
+  export.checksum: md5
   export.with_ts_object_names: true
   export.exclude_metadata: false
   export.renames.SITE.SITE_ID: ID

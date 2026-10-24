@@ -52,7 +52,7 @@ def _log_promotion_start(ctx: Context) -> None:
     A failure that no retry repairs is undone by restoring the target to this version.
     """
     source = ctx.source_table or ctx.inbound_glob
-    version = table_version(ctx)
+    version = table_version(ctx.spark, ctx.target_table)
     current = (
         f"Current {ctx.target_table} version #{version}."
         if version is not None

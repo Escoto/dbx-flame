@@ -5,6 +5,7 @@ under pytest, so a failed assert is what fails the task.
 """
 
 import csv
+import hashlib
 import io
 import os
 import sys
@@ -49,6 +50,11 @@ def exported_files() -> list:
     return sorted(os.listdir(FOLDER))
 
 
+def data_files(files: list) -> list:
+    """The exported CSVs, without their checksums and the manifest."""
+    return [name for name in files if name.endswith(".csv") and "_MANIFEST_" not in name]
+
+
 def _read(name: str) -> tuple:
     path = os.path.join(FOLDER, name)
     with open(path, newline="", encoding="utf-8") as handle:
@@ -79,6 +85,44 @@ def expect_contact(name: str, header: list = CONTACT_COLUMNS) -> None:
     assert written_header == header, f"{name} header differs: {written_header}"
     expected = sorted([str(i), site, email][: len(header)] for i, site, email in CONTACT_ROWS)
     assert rows == expected, f"{name} rows differ: {rows}"
+
+
+def expect_manifest(files: list, algorithm: str, expected: dict) -> None:
+    """Every CSV has its bare hash beside it, and the manifest lists each object once.
+
+    expected maps an object to its (object_type, pinned, row_count, file name).
+    """
+    for name in (name for name in files if name.endswith(".csv")):
+        stem = os.path.join(FOLDER, name[:-4])
+        with open(f"{stem}.csv", "rb") as handle:
+            digest = hashlib.new(algorithm, handle.read()).hexdigest()
+        with open(f"{stem}.{algorithm}", encoding="ascii") as handle:
+            written = handle.read()
+        assert written == digest, f"{name}: {algorithm} file holds {written!r}, not {digest}"
+
+    [manifest] = [
+        name
+        for name in files
+        if name.startswith("PLATFORM_TEST_MANIFEST_") and name.endswith(".csv")
+    ]
+    _, header, rows = _read(manifest)
+    assert header == [
+        "object",
+        "object_type",
+        "version",
+        "row_count",
+        "export_file_name",
+        "checksum",
+    ], f"manifest header differs: {header}"
+    listed = {row[0]: row[1:] for row in rows}
+    assert sorted(listed) == sorted(expected), f"manifest lists {sorted(listed)}"
+    for name, (object_type, pinned, count, file_name) in expected.items():
+        kind, version, row_count, listed_file, checksum = listed[name]
+        assert (kind, row_count, listed_file) == (object_type, str(count), file_name), listed[name]
+        # A table is pinned to a version; a view has none to record.
+        assert version.isdigit() if pinned else version == "", f"{name} version: {version!r}"
+        with open(os.path.join(FOLDER, f"{file_name[:-4]}.{algorithm}"), encoding="ascii") as h:
+            assert checksum == h.read(), f"{name}: manifest checksum differs from its file's"
 
 
 def expect_site_view(name: str) -> None:

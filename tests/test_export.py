@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import os
 import uuid
 from collections import defaultdict
@@ -12,6 +13,7 @@ import pytest
 
 from dbx_flame.context.config import ExportConfig, ExportTaskConfig
 from dbx_flame.context.loader import ConfigValidationError, load_config
+from dbx_flame.entrypoints import export
 from dbx_flame.entrypoints.export import export_objects, main
 from dbx_flame.observability.kpi import Kpi
 
@@ -24,7 +26,26 @@ PARAMS = {
     "export.schema_name": "gold_odr",
     "export.preparation_path": "/Volumes/codex_dev_01/metadata/exports/",
     "export.stamp_format": "%Y%m%dT%H%M%S",
+    "export.checksum": "sha256",
 }
+
+MANIFEST = f"CRO_MANIFEST_{STAMP}"
+
+
+@pytest.fixture(autouse=True)
+def object_types(spark):
+    """Unity Catalog's table types, which a local session has no information_schema for."""
+    overrides: dict[str, tuple] = {}
+
+    def lookup(_spark, schema):
+        tables = spark.catalog.listTables(schema.strip("`"))
+        found = {
+            t.name: (t.tableType, "DELTA" if t.tableType == "MANAGED" else None) for t in tables
+        }
+        return {**found, **overrides}
+
+    with patch("dbx_flame.entrypoints.export._object_types", lookup):
+        yield overrides
 
 
 @pytest.fixture
@@ -34,10 +55,10 @@ def schema(spark):
     spark.createDataFrame(
         [(1, 'say "hi"'), (2, "line\nbreak"), (3, "  padded  "), (4, None), (5, "")],
         "ID INT, TEXT STRING",
-    ).write.saveAsTable(f"`{name}`.`SUBJECTS`")
+    ).write.format("delta").saveAsTable(f"`{name}`.`SUBJECTS`")
     spark.createDataFrame(
         [(10, "DE", "sites.csv")], "ID INT, COUNTRY STRING, __SOURCE STRING"
-    ).write.saveAsTable(f"`{name}`.`SITES`")
+    ).write.format("delta").saveAsTable(f"`{name}`.`SITES`")
     yield name
     spark.sql(f"DROP DATABASE IF EXISTS `{name}` CASCADE")
 
@@ -50,7 +71,7 @@ def _config(schema, tmp_path, tables=(), with_ts=False, **settings):
         preparation_path=str(tmp_path),
         stamp_format="%Y",
         with_ts_object_names=with_ts,
-        **settings,
+        **{"checksum": "sha256", **settings},
     )
 
 
@@ -59,6 +80,20 @@ def _export(spark, schema, tmp_path, tables=(), with_ts=False, **settings):
     config = _config(schema, tmp_path, tables, with_ts, **settings)
     export_objects(spark, f"`{schema}`", config, STAMP, loggers.__getitem__)
     return tmp_path / schema, loggers
+
+
+def _csvs(folder):
+    """The data files, without their checksums and the manifest."""
+    return sorted(
+        name for name in os.listdir(folder) if name.endswith(".csv") and "MANIFEST" not in name
+    )
+
+
+def _manifest(folder):
+    with open(folder / f"{MANIFEST}.csv", newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+    assert rows[0] == list(export._MANIFEST_HEADER)
+    return {row[0]: row[1:] for row in rows[1:]}
 
 
 def _header(path):
@@ -81,7 +116,14 @@ def _argv(params):
 def test_export_writes_one_csv_per_object_of_the_schema(spark, schema, tmp_path):
     folder, loggers = _export(spark, schema, tmp_path)
 
-    assert sorted(os.listdir(folder)) == ["SITES.csv", "SUBJECTS.csv"]
+    assert sorted(os.listdir(folder)) == [
+        f"{MANIFEST}.csv",
+        f"{MANIFEST}.sha256",
+        "SITES.csv",
+        "SITES.sha256",
+        "SUBJECTS.csv",
+        "SUBJECTS.sha256",
+    ]
     kpi = loggers[f"`{schema}`.`subjects`"].kpi
     kpi.assert_called_once()
     assert kpi.call_args.args[:2] == (Kpi.ROWS_EXPORTED, 5)
@@ -90,7 +132,8 @@ def test_export_writes_one_csv_per_object_of_the_schema(spark, schema, tmp_path)
 def test_export_stamps_object_names_only_when_asked(spark, schema, tmp_path):
     folder, _ = _export(spark, schema, tmp_path, with_ts=True)
 
-    assert sorted(os.listdir(folder)) == [f"SITES_{STAMP}.csv", f"SUBJECTS_{STAMP}.csv"]
+    assert _csvs(folder) == [f"SITES_{STAMP}.csv", f"SUBJECTS_{STAMP}.csv"]
+    assert (folder / f"SITES_{STAMP}.sha256").exists()
 
 
 def test_export_follows_rfc_4180_and_keeps_values_as_they_are(spark, schema, tmp_path):
@@ -116,7 +159,7 @@ def test_export_follows_rfc_4180_and_keeps_values_as_they_are(spark, schema, tmp
 def test_export_of_named_objects_matches_names_in_any_case(spark, schema, tmp_path):
     folder, _ = _export(spark, schema, tmp_path, tables=["Sites"])
 
-    assert os.listdir(folder) == ["SITES.csv"]
+    assert _csvs(folder) == ["SITES.csv"]
 
 
 def test_export_refuses_an_unknown_object_before_touching_the_folder(spark, schema, tmp_path):
@@ -182,7 +225,7 @@ def test_export_skips_settings_of_an_object_it_does_not_export(spark, schema, tm
         spark, schema, tmp_path, tables=["SUBJECTS"], excludes={"SITES": ["COUNTRY"]}
     )
 
-    assert os.listdir(folder) == ["SUBJECTS.csv"]
+    assert _csvs(folder) == ["SUBJECTS.csv"]
     warning = loggers[f"`{schema}`.`sites`"].warning
     assert warning.call_args.kwargs["name"] == "export_settings_skipped"
 
@@ -209,9 +252,104 @@ def test_export_attempts_every_object_before_failing_the_run(spark, schema, tmp_
     with pytest.raises(RuntimeError, match="1 object\\(s\\): broken"):
         export_objects(spark, f"`{schema}`", _config(schema, tmp_path), STAMP, loggers.__getitem__)
 
-    assert sorted(os.listdir(tmp_path / schema)) == ["SITES.csv", "SUBJECTS.csv"]
+    assert _csvs(tmp_path / schema) == ["SITES.csv", "SUBJECTS.csv"]
+    assert sorted(_manifest(tmp_path / schema)) == ["SITES", "SUBJECTS"]
     error = loggers[f"`{schema}`.`broken`"].error
     assert error.call_args.kwargs["name"] == "object_export_failure"
+
+
+@pytest.mark.parametrize("algorithm", ["md5", "sha256", "sha512"])
+def test_export_checksum_file_holds_the_bare_hash_of_its_file(spark, schema, tmp_path, algorithm):
+    """Exactly what md5sum, sha256sum or sha512sum print for the file: nothing else."""
+    folder, _ = _export(spark, schema, tmp_path, checksum=algorithm)
+
+    for stem in ("SITES", "SUBJECTS", MANIFEST):
+        expected = hashlib.new(algorithm, (folder / f"{stem}.csv").read_bytes()).hexdigest()
+        assert (folder / f"{stem}.{algorithm}").read_text(encoding="ascii") == expected
+
+
+def test_export_manifest_lists_each_object_with_its_version_count_and_checksum(
+    spark, schema, tmp_path
+):
+    spark.sql(f"CREATE VIEW `{schema}`.`SUBJECT_IDS` AS SELECT ID FROM `{schema}`.`SUBJECTS`")
+    spark.sql(f"CREATE TABLE `{schema}`.`EMPTY` (ID INT) USING DELTA")
+
+    folder, _ = _export(spark, schema, tmp_path)
+
+    checksum = (folder / "SUBJECTS.sha256").read_text(encoding="ascii")
+    assert _manifest(folder) == {
+        "EMPTY": ["MANAGED", "0", "0", "EMPTY.csv", (folder / "EMPTY.sha256").read_text()],
+        "SITES": ["MANAGED", "0", "1", "SITES.csv", (folder / "SITES.sha256").read_text()],
+        "SUBJECTS": ["MANAGED", "0", "5", "SUBJECTS.csv", checksum],
+        # A view has no version to pin; its count is the file's.
+        "SUBJECT_IDS": [
+            "VIEW",
+            "",
+            "5",
+            "SUBJECT_IDS.csv",
+            (folder / "SUBJECT_IDS.sha256").read_text(),
+        ],
+    }
+
+
+def test_export_counts_records_across_any_chunk_boundary(spark, schema, tmp_path):
+    """SUBJECTS quotes a quote and a line break; a one-byte read splits every one of them."""
+    with patch("dbx_flame.entrypoints.export._CHUNK", 1):
+        _, loggers = _export(spark, schema, tmp_path, tables=["SUBJECTS"])
+
+    assert loggers[f"`{schema}`.`subjects`"].kpi.call_args.args[:2] == (Kpi.ROWS_EXPORTED, 5)
+
+
+def test_export_reads_a_table_at_the_version_it_recorded(spark, schema, tmp_path):
+    """A commit landing mid-export reaches neither the file nor the count it is held to."""
+    write = export._write_csv
+
+    def commit_then_write(frame, path):
+        spark.sql(f"INSERT INTO `{schema}`.`SUBJECTS` VALUES (6, 'late')")
+        write(frame, path)
+
+    with patch("dbx_flame.entrypoints.export._write_csv", commit_then_write):
+        folder, _ = _export(spark, schema, tmp_path, tables=["SUBJECTS"])
+
+    assert _manifest(folder)["SUBJECTS"][:3] == ["MANAGED", "0", "5"]
+
+
+def test_export_fails_an_object_whose_file_holds_fewer_rows_than_its_version(
+    spark, schema, tmp_path
+):
+    write = export._write_csv
+
+    def truncated(frame, path):
+        write(frame, path)
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.readlines()
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.writelines(lines[:-1])
+
+    loggers = defaultdict(MagicMock)
+    with (
+        patch("dbx_flame.entrypoints.export._write_csv", truncated),
+        pytest.raises(RuntimeError, match="1 object\\(s\\): sites"),
+    ):
+        export_objects(
+            spark, f"`{schema}`", _config(schema, tmp_path, ["SITES"]), STAMP, loggers.__getitem__
+        )
+
+    error = loggers[f"`{schema}`.`sites`"].error.call_args.kwargs
+    assert error["name"] == "row_count_mismatch"
+    assert "holds 0 rows" in error["description"]
+    assert _manifest(tmp_path / schema) == {}
+
+
+def test_export_warns_of_a_table_it_cannot_pin(spark, schema, tmp_path, object_types):
+    """A foreign table, like a view, is exported as read; unlike a view, it says so."""
+    object_types["sites"] = ("FOREIGN", None)
+
+    folder, loggers = _export(spark, schema, tmp_path, tables=["SITES"])
+
+    assert _manifest(folder)["SITES"][:3] == ["FOREIGN", "", "1"]
+    warning = loggers[f"`{schema}`.`sites`"].warning.call_args.kwargs
+    assert warning["name"] == "object_not_versioned"
 
 
 @patch("dbx_flame.entrypoints.export.export_objects", side_effect=RuntimeError("boom"))
@@ -262,6 +400,7 @@ def test_export_config_loads_a_comma_separated_subset():
         ("export.name", "IC/ON", "UPPERCASE file name part"),
         ("export.timezone", "Mars/Olympus", "IANA time zone"),
         ("export.timezone", "../etc", "IANA time zone"),
+        ("export.checksum", "crc32", "'md5', 'sha256' or 'sha512'"),
     ],
 )
 def test_export_config_rejects(key, value, message):
@@ -311,8 +450,9 @@ def test_export_config_renames_framework_columns_it_keeps():
     assert load_config(params, ExportTaskConfig).export.renames == {"SITES": {"__SOURCE": "FILE"}}
 
 
-def test_export_config_requires_a_name():
-    params = {key: value for key, value in PARAMS.items() if key != "export.name"}
+@pytest.mark.parametrize("key", ["export.name", "export.checksum"])
+def test_export_config_requires(key):
+    params = {name: value for name, value in PARAMS.items() if name != key}
 
-    with pytest.raises(ConfigValidationError, match="export.name"):
+    with pytest.raises(ConfigValidationError, match=key):
         load_config(params, ExportTaskConfig)
