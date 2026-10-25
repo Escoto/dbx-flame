@@ -78,16 +78,8 @@ Every other combination, and the traps a valid config doesn't rule out, are in
 
 ## Documentation
 
-1. [00_overview.md](docs/00_overview.md) — goals, principles, glossary, layer diagram
-2. [01_architecture.md](docs/01_architecture.md) — layers, protocols, execution flow, extension points
-3. [02_config_schema.md](docs/02_config_schema.md) — the typed config schema, parameter by parameter
-4. [03_write_verbs.md](docs/03_write_verbs.md) — verb semantics with worked examples
-5. [04_policies.md](docs/04_policies.md) — the data quality gate, driven by a DQX ruleset
-6. [05_testing.md](docs/05_testing.md) — unit and platform testing
-7. [06_roadmap.md](docs/06_roadmap.md) — phased implementation plan and current status
-8. [07_workspace_setup.md](docs/07_workspace_setup.md) — workspace setup recipe: catalog naming, schemas, volumes, grants
-9. [08_usage.md](docs/08_usage.md) — which source, strategy and verb to combine, and the traps
-10. [09_export.md](docs/09_export.md) — the export task: file naming and the CSV format
+Start with the [quick start](docs/README.md#quick-start): the catalogs, volumes and naming
+rules the framework needs. [docs/README.md](docs/README.md) also lists every document.
 
 ## Development
 
@@ -112,7 +104,7 @@ Platform tests are real Databricks jobs under
 The bundle in [databricks.yml](databricks.yml) is configured to work with a Python wheel: it
 builds the wheel, then deploys the bundle. Authenticate with a CLI profile or with
 `DATABRICKS_HOST` / `DATABRICKS_TOKEN`. A new workspace first needs its catalogs, schemas and
-volumes; see [07_workspace_setup.md](docs/07_workspace_setup.md).
+volumes; see the [quick start](docs/README.md#quick-start).
 
 ```bash
 databricks bundle deploy
