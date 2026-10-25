@@ -99,7 +99,7 @@ def reject_unstamped(df: DataFrame, ctx: Context) -> None:
         f"{unstamped[0]} doesn't carry a source.snapshot_time_pattern={pattern.value} stamp "
         f"(expected {_PATTERNS[pattern][1]}); nothing from this batch was written"
     )
-    violate(ctx, PlatformPolicy.UNSTAMPED_FILE, _SOURCE, message)
+    violate(ctx.logger, PlatformPolicy.UNSTAMPED_FILE, _SOURCE, message)
 
 
 def sanitize_column_names(df: DataFrame, ctx: Context) -> DataFrame:
@@ -170,7 +170,7 @@ def stamp_anchor(df: DataFrame, ctx: Context) -> DataFrame:
     kind = dict(df.dtypes).get(anchor.column)
     if kind is None:
         violate(
-            ctx,
+            ctx.logger,
             PlatformPolicy.ANCHOR_COLUMN_MISSING,
             _SOURCE,
             f"source.anchor_dt.column={anchor.column} is not in the batch",
@@ -198,7 +198,7 @@ def stamp_anchor(df: DataFrame, ctx: Context) -> DataFrame:
             f"{f' with format {anchor.format}' if anchor.format else ''} "
             f"(e.g. {found['example']})"
         )
-        violate(ctx, PlatformPolicy.ANCHOR_UNPARSEABLE, _SOURCE, message)
+        violate(ctx.logger, PlatformPolicy.ANCHOR_UNPARSEABLE, _SOURCE, message)
 
     if found["missing"]:
         ctx.logger.warning(

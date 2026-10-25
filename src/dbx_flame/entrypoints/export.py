@@ -23,6 +23,7 @@ from dbx_flame.mechanics.columns import is_framework_column
 from dbx_flame.observability.audit_logger import AuditLogger
 from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.mechanics import table_version
+from dbx_flame.policies.platform import PlatformPolicy, PlatformPolicyViolation, violate
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -299,20 +300,22 @@ def export_objects(
             # changed between two reads of it.
             expected = read.frame.count() if read.version is not None else rows
             if rows != expected:
-                logger.error(
-                    name="row_count_mismatch",
-                    source=_SOURCE,
-                    description=f"{file_name} holds {rows} rows; {source} holds {expected} "
+                violate(
+                    logger,
+                    PlatformPolicy.EXPORT_ROW_COUNT_MISMATCH,
+                    _SOURCE,
+                    f"{file_name} holds {rows} rows; {source} holds {expected} "
                     f"at version {read.version}",
                     total=abs(rows - expected),
                 )
-                failed.append(name)
-                continue
 
             logger.kpi(Kpi.ROWS_EXPORTED, rows, description=f"{source} exported to {folder}")
             manifest.append(
                 (name.upper(), read.object_type, read.version, rows, file_name, checksum)
             )
+        except PlatformPolicyViolation:
+            # violate() already wrote the audit row: no second object_export_failure.
+            failed.append(name)
         except Exception as exc:
             _log_failure(logger, exc)
             failed.append(name)

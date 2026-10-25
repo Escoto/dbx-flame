@@ -70,16 +70,11 @@ Every other combination, and the traps a valid config doesn't rule out, are in
 - **Config-driven onboarding** — declare an origin, a write verb and a target; the framework
   validates the combination and runs it. No per-dataset Python.
 - **Data handling verbs** — `APPEND`, `FULL`, `UPSERT`, `SCD2`, `COMPLETE_DELTA` — layer-agnostic,
-  so the same verb serves Inbound→Bronze or Bronze→Silver.
-- **Gold is SQL (planned)** — each Gold table will be a materialized view over Silver, in its
-  own `.sql` file, so Silver's MERGEs never block it. See [Gold](docs/00_overview.md#gold).
-- **A data quality gate, not a bolt-on** — every batch is checked against a
-  [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset (you define this) before it's written;
+  so the same mechanics serve `Inbound → Bronze` or `Bronze → Silver`.
+- **Quality gates** — every batch is checked against a
+  [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset you define before any data is propagated;
   `error` refuses the batch, `warn` logs and lets it through.
-- **Fail fast, fail loud** — Invalid Configs or Failed Data QA stops the run with one aggregated
-  error report. Nothing logs an error and reports success.
-- **Ships as a wheel** — src-layout package deployed via Databricks Declarative Automation
-  Bundles and run through `python_wheel_task` entry points. No notebook logic, no `sys.path` hacks.
+- **Fail fast, fail loud** — Invalid Configs or Failed Data QA stops the run and logs the issue. Nothing logs an error and reports success.
 
 ## Documentation
 

@@ -83,7 +83,7 @@ def require_no_new_columns(df: DataFrame, ctx: Context) -> None:
     unexpected = [column for column in df.columns if column not in existing]
     if unexpected:
         violate(
-            ctx,
+            ctx.logger,
             PlatformPolicy.UNEXPECTED_COLUMNS,
             _SOURCE,
             f"{ctx.target_table} has no column "
@@ -150,7 +150,7 @@ def require_valid_times(
     ]
     if absent:
         violate(
-            ctx,
+            ctx.logger,
             PlatformPolicy.EVENT_TIME_INVALID,
             _SOURCE,
             f"{', '.join(absent)} is not in the batch",
@@ -184,7 +184,7 @@ def require_valid_times(
 
     if problems:
         violate(
-            ctx,
+            ctx.logger,
             PlatformPolicy.EVENT_TIME_INVALID,
             _SOURCE,
             "; ".join(problems) + "; nothing from this batch was written",
@@ -200,7 +200,7 @@ def require_creatable(df: DataFrame, ctx: Context) -> None:
     if ctx.spark.catalog.tableExists(ctx.target_table):
         return
     violate(
-        ctx,
+        ctx.logger,
         PlatformPolicy.EMPTY_SOURCE_SCHEMA,
         _SOURCE,
         f"Cannot create {ctx.target_table}: the source produced no columns",

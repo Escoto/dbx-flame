@@ -161,7 +161,7 @@ class CastService:
         )
         message = f"Values became NULL after casting: {detail}"
         violate(
-            ctx,
+            ctx.logger,
             PlatformPolicy.CAST_SILENT_NULL,
             _SOURCE,
             message,
