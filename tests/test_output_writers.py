@@ -138,14 +138,14 @@ def test_append_reports_the_rows_it_wrote(spark, database):
 
 def test_table_version_follows_each_commit_and_is_none_before_the_first(spark, database):
     ctx = _ctx(spark, database)
-    assert table_version(ctx) is None
+    assert table_version(spark, ctx.target_table) is None
 
     writer = AppendWriter()
     writer.write(_people(spark, [("1", "alice", "2024-01-01")]), ctx)
-    first = table_version(ctx)
+    first = table_version(spark, ctx.target_table)
     writer.write(_people(spark, [("2", "bob", "2024-01-02")]), ctx)
 
-    assert table_version(ctx) == first + 1
+    assert table_version(spark, ctx.target_table) == first + 1
 
 
 def test_a_columnless_batch_cannot_create_a_target(spark, database):

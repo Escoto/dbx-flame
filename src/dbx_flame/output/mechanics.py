@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from datetime import datetime
 
-    from pyspark.sql import Column, DataFrame, Row
+    from pyspark.sql import Column, DataFrame, Row, SparkSession
 
     from dbx_flame.context.context import Context
     from dbx_flame.observability.kpi import Kpi
@@ -290,7 +290,7 @@ def log_rows_written(ctx: Context, event: Kpi, source: str) -> None:
     Counting the batch would mean a second pass over the source; the table's last
     commit already knows exactly how many rows landed.
     """
-    commit = _last_commit(ctx)
+    commit = _last_commit(ctx.spark, ctx.target_table)
     metrics = (commit["operationMetrics"] or {}) if commit else {}
     written = metrics.get("numOutputRows") or metrics.get("numTargetRowsInserted") or 0
 
@@ -299,14 +299,14 @@ def log_rows_written(ctx: Context, event: Kpi, source: str) -> None:
     )
 
 
-def table_version(ctx: Context) -> int | None:
-    """The target's current Delta version, or None when it doesn't exist yet."""
-    if not ctx.spark.catalog.tableExists(ctx.target_table):
+def table_version(spark: SparkSession, table: str) -> int | None:
+    """The table's current Delta version, or None when it doesn't exist yet."""
+    if not spark.catalog.tableExists(table):
         return None
-    commit = _last_commit(ctx)
+    commit = _last_commit(spark, table)
     return commit["version"] if commit else None
 
 
-def _last_commit(ctx: Context) -> Row | None:
-    history = ctx.spark.sql(f"DESCRIBE HISTORY {ctx.target_table} LIMIT 1").collect()
+def _last_commit(spark: SparkSession, table: str) -> Row | None:
+    history = spark.sql(f"DESCRIBE HISTORY {table} LIMIT 1").collect()
     return history[0] if history else None
