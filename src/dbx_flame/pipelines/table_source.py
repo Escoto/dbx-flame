@@ -60,7 +60,7 @@ def _is_stamped(ctx: Context, table: str) -> bool:
     missing = [marker for marker in PROVENANCE_MARKERS if marker not in columns]
     if 0 < len(missing) < len(PROVENANCE_MARKERS):
         violate(
-            ctx,
+            ctx.logger,
             PlatformPolicy.MALFORMED_TABLE,
             _SOURCE,
             f"malformed table {table}: incomplete metadata: missing {', '.join(missing)}",
@@ -72,7 +72,7 @@ def _require_anchor(ctx: Context, table: str) -> None:
     """An unstamped table would read as NULL anchors: every row silently skipped."""
     if _follows_anchor(ctx) and ANCHOR_DT not in ctx.spark.table(table).columns:
         violate(
-            ctx,
+            ctx.logger,
             PlatformPolicy.ANCHOR_NOT_STAMPED,
             _SOURCE,
             f"{table} has no {ANCHOR_DT}: set source.anchor_dt on the task that ingests it",
@@ -115,7 +115,7 @@ class TableSource:
             # Stamping here would label an increment as a whole snapshot, and per
             # micro-batch at that: FULL would keep the last slice and drop the rest.
             violate(
-                ctx,
+                ctx.logger,
                 PlatformPolicy.UNSTAMPED_TABLE,
                 _SOURCE,
                 f"{table} carries none of {_MARKERS}: a table we didn't create can only be "
@@ -137,7 +137,7 @@ class TableSource:
             # Our own table already holds its exports: stamping them again would append
             # them twice, or replay snapshots older than the target already holds.
             violate(
-                ctx,
+                ctx.logger,
                 PlatformPolicy.STAMPED_TABLE,
                 _SOURCE,
                 f"{table} already carries {_MARKERS}: a {strategy} would stamp the exports "
@@ -171,14 +171,14 @@ class TableSource:
         )
         if found is None:
             violate(
-                ctx,
+                ctx.logger,
                 PlatformPolicy.ANCHOR_COLUMN_MISSING,
                 _SOURCE,
                 f"source.anchor_dt.column={anchor.column} is not in {table}",
             )
         if not isinstance(found.dataType, _ANCHOR_TYPES):
             violate(
-                ctx,
+                ctx.logger,
                 PlatformPolicy.ANCHOR_WRONG_TYPE,
                 _SOURCE,
                 f"source.anchor_dt.column={anchor.column} in {table} is "

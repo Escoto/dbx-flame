@@ -59,7 +59,7 @@ The settings, and what Start rejects, are in
 
 7. **Seals each file** with a checksum beside it and counts its rows, both from one read
    of the file: see [4](#4-checksums-and-the-manifest). A pinned table whose file holds
-   a different number of rows than its version fails that object (`row_count_mismatch`).
+   a different number of rows than its version fails that object (platform policy `export_row_count_mismatch`).
 8. **Attempts every object.** One that fails, such as a view whose source is gone, is
    logged against that object (`object_export_failure`) and the run fails once all were
    attempted, keeping the files of the ones that succeeded.

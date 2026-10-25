@@ -191,6 +191,7 @@ The platform policies, named as the audit row a violation writes:
 | `empty_source_schema` | a new target would be created from a batch with no columns |
 | `unexpected_columns` | a batch carries a new column and `schema_evolution` doesn't add it |
 | `event_time_invalid` | a date a keyed verb compares is missing, blank or doesn't parse |
+| `export_row_count_mismatch` | an exported file holds a different number of rows than its pinned table version. It fails that object, and the export run fails after it attempts the rest ([09_export.md](09_export.md)) |
 | `malformed_table` | a source table carries one of `__SOURCE` and `__EXPORT_DATE` but not the other |
 | `unstamped_table` | a checkpoint or watermark read meets a table with neither: only `full_read` or `delta_read` may stamp one |
 | `stamped_table` | a `full_read` or `delta_read` meets a table we stamped, whose exports it would stamp again |

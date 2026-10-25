@@ -10,7 +10,7 @@ from enum import StrEnum, unique
 from typing import TYPE_CHECKING, NoReturn
 
 if TYPE_CHECKING:
-    from dbx_flame.context.context import Context
+    from dbx_flame.observability.audit_logger import AuditLogger
 
 
 @unique  # two policies sharing an audit name would be indistinguishable
@@ -29,6 +29,7 @@ class PlatformPolicy(StrEnum):
     MALFORMED_TABLE = "malformed_table"  # a source table carries all or none of our metadata
     UNSTAMPED_TABLE = "unstamped_table"  # only a full or delta read stamps a foreign table
     STAMPED_TABLE = "stamped_table"  # a full or delta read never re-stamps exports we hold
+    EXPORT_ROW_COUNT_MISMATCH = "export_row_count_mismatch"  # a file holds its version's rows
 
 
 class PlatformPolicyViolation(Exception):
@@ -40,7 +41,7 @@ class PlatformPolicyViolation(Exception):
 
 
 def violate(
-    ctx: Context,
+    logger: AuditLogger,
     policy: PlatformPolicy,
     source: str,
     message: str,
@@ -52,8 +53,8 @@ def violate(
     Flushed before raising so the reason survives even if the run dies before its own
     final flush.
     """
-    ctx.logger.error(
+    logger.error(
         name=policy.value, source=source, description=message, total=total, metadata=metadata
     )
-    ctx.logger.flush()
+    logger.flush()
     raise PlatformPolicyViolation(policy, message)

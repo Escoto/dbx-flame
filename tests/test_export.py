@@ -335,9 +335,11 @@ def test_export_fails_an_object_whose_file_holds_fewer_rows_than_its_version(
             spark, f"`{schema}`", _config(schema, tmp_path, ["SITES"]), STAMP, loggers.__getitem__
         )
 
-    error = loggers[f"`{schema}`.`sites`"].error.call_args.kwargs
-    assert error["name"] == "row_count_mismatch"
-    assert "holds 0 rows" in error["description"]
+    logger = loggers[f"`{schema}`.`sites`"]
+    logger.error.assert_called_once()  # the policy's row, not a second object_export_failure
+    assert logger.error.call_args.kwargs["name"] == "export_row_count_mismatch"
+    assert "holds 0 rows" in logger.error.call_args.kwargs["description"]
+    logger.kpi.assert_not_called()
     assert _manifest(tmp_path / schema) == {}
 
 
