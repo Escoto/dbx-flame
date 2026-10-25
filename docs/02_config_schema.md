@@ -329,8 +329,14 @@ export.tables: "SITE, CONTACT"    # list; empty → every table and view in the 
 export.preparation_path: /Volumes/mdm_dev/gold_cro/exports/  # str, required
 export.stamp_format: "%Y-%m-%d"   # str, required; a strftime format
 export.checksum: sha256           # md5 | sha256 | sha512, required; every file's checksum
+export.package: zip               # zip | files, required; one zip, or loose files
+export.destination: s3://receiver/system1/  # str; empty → {preparation_path}/deliveries/{name}/
 export.timezone: Europe/Berlin    # str, default UTC; the zone the stamp is taken in
 export.with_ts_object_names: false  # bool, default false; SITE_<stamp>.csv instead of SITE.csv
+export.with_ts_zip: true          # bool, default true, zip only; CRO_<stamp>.zip instead of CRO.zip
+export.with_zip_checksum: true    # bool, default true, zip only; the zip's checksum beside it
+export.with_manifest: true        # bool, default true; delivers the manifest and its checksum
+export.skip_empty: true           # bool, default true; leaves objects with no rows out
 export.exclude_metadata: true     # bool, default true; leaves every framework (__) column out
 export.excludes.SITE: "REGION, NOTES"  # list, per object; columns left out of SITE.csv
 export.renames.SITE.SITE_ID: ID   # str, per object and column; SITE_ID is named ID in SITE.csv
@@ -345,6 +351,9 @@ Rejected at Start:
   (`/ \ : * ? " < > |`);
 - `export.timezone` that isn't an IANA time zone name;
 - `export.checksum` that isn't `md5`, `sha256` or `sha512`, or is missing;
+- `export.package` that isn't `zip` or `files`, or is missing, and `export.with_ts_zip` or
+  `export.with_zip_checksum` set with `files`, where they would do nothing;
+- `export.destination` inside `{preparation_path}/exports_temp/`, which every run clears;
 - `export.stamp_format` without a `%` directive (every run would carry the same stamp), or
   one that renders a character a file name can't carry;
 - `export.preparation_path` outside a Volume of `{catalog}_{env}`, or above the Volume

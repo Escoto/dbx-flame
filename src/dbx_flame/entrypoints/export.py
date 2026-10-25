@@ -8,6 +8,8 @@ import json
 import os
 import shutil
 import sys
+import tempfile
+import zipfile
 from collections import Counter
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple, Optional
@@ -16,7 +18,7 @@ from zoneinfo import ZoneInfo
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
-from dbx_flame.context.config import ExportTaskConfig
+from dbx_flame.context.config import ExportTaskConfig, Package
 from dbx_flame.context.loader import load_config
 from dbx_flame.entrypoints.run import LOCAL, _parse_argv, _run_identity
 from dbx_flame.mechanics.columns import is_framework_column
@@ -28,6 +30,7 @@ from dbx_flame.policies.platform import PlatformPolicy, PlatformPolicyViolation,
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from pyspark.dbutils import DBUtils
     from pyspark.sql import DataFrame
 
     from dbx_flame.context.config import ChecksumAlgorithm, ExportConfig
@@ -251,6 +254,59 @@ def _write_manifest(folder: str, file_name: str, rows: list[tuple], config: Expo
     _checksum(path, config.checksum)
 
 
+def _get_dbutils(spark: SparkSession) -> DBUtils:
+    """dbutils, created on first use: it only exists on a Databricks cluster."""
+    from pyspark.dbutils import DBUtils
+
+    return DBUtils(spark)
+
+
+def _deliver(
+    spark: SparkSession,
+    folder: str,
+    files: list[str],
+    manifest: str,
+    config: ExportConfig,
+    stamp: str,
+    logger: AuditLogger,
+) -> None:
+    """Copy the files, or their zip, to the destination; the file that marks it complete last.
+
+    dbutils copies each object whole, so a consumer never reads a partial file.
+    """
+    algorithm = config.checksum.value
+    with_checksums = [*files, *([manifest] if config.with_manifest else [])]
+    names = [n for f in with_checksums for n in (f, f"{os.path.splitext(f)[0]}.{algorithm}")]
+
+    if config.package == Package.ZIP:
+        stem = f"{config.name}_{stamp}" if config.with_ts_zip else config.name
+        # A Volume can't seek, which a zip needs to write its directory: build it on local
+        # disk, then copy it in whole.
+        with tempfile.TemporaryDirectory() as local:
+            built = os.path.join(local, f"{stem}.zip")
+            with zipfile.ZipFile(built, "w", zipfile.ZIP_DEFLATED) as z:
+                for name in names:
+                    z.write(os.path.join(folder, name), name)
+            shutil.copyfile(built, os.path.join(folder, f"{stem}.zip"))
+        names = [f"{stem}.zip"]
+        if config.with_zip_checksum:
+            _checksum(os.path.join(folder, f"{stem}.zip"), config.checksum)
+            names.append(f"{stem}.{algorithm}")
+
+    destination = config.destination or os.path.join(
+        config.preparation_path, "deliveries", config.name
+    )
+    dbutils = _get_dbutils(spark)
+    for name in names:
+        dbutils.fs.cp(os.path.join(folder, name), os.path.join(destination, name))
+    logger.info(
+        name="delivery_complete",
+        source=_SOURCE,
+        description=f"{config.package.value.capitalize()} delivered to {destination}",
+        total=len(names),
+    )
+
+
 def _file_name(name: str, stamp: str, with_stamp: bool) -> str:
     # Uppercase as our table names are; Unity Catalog hands them back in lowercase.
     stem = f"{name.upper()}_{stamp}" if with_stamp else name.upper()
@@ -264,17 +320,18 @@ def export_objects(
     stamp: str,
     logger_for: Callable[[str], AuditLogger],
 ) -> None:
-    """Export each object to {preparation_path}/{schema_name}/{OBJECT}.csv.
+    """Export each object to {preparation_path}/exports_temp/{name}/{OBJECT}.csv, then deliver.
 
     The name carries _{stamp} with export.with_ts_object_names. Settings that name a
     missing object or column fail the run before anything is written. Every object is
-    attempted; the run fails afterwards if any of them did. Every file gets its checksum
-    beside it, and the manifest lists the objects exported.
+    attempted; the run fails afterwards if any of them did, and delivers nothing. Every
+    file gets its checksum beside it, and the manifest lists the objects delivered.
     """
     planned, failed = _plan(spark, schema, config, logger_for)
 
-    # Only this schema's folder: the preparation path may hold other schemas' exports.
-    folder = os.path.join(config.preparation_path, config.schema_name)
+    # Only this export's folder: the preparation path may hold other exports, even of
+    # the same schema.
+    folder = os.path.join(config.preparation_path, "exports_temp", config.name)
     if os.path.exists(folder):
         shutil.rmtree(folder)
     os.makedirs(folder)
@@ -310,6 +367,13 @@ def export_objects(
                 )
 
             logger.kpi(Kpi.ROWS_EXPORTED, rows, description=f"{source} exported to {folder}")
+            if config.skip_empty and not rows:
+                logger.warning(
+                    name="nothing_to_export",
+                    source=_SOURCE,
+                    description=f"{source} has no rows; left out of the delivery",
+                )
+                continue
             manifest.append(
                 (name.upper(), read.object_type, read.version, rows, file_name, checksum)
             )
@@ -322,10 +386,25 @@ def export_objects(
         finally:
             logger.flush()
 
-    _write_manifest(folder, f"{config.name}_MANIFEST_{stamp}.csv", manifest, config)
+    manifest_name = f"{config.name}_MANIFEST_{stamp}.csv"
+    _write_manifest(folder, manifest_name, manifest, config)
 
     if failed:
         raise RuntimeError(f"Export failed for {len(failed)} object(s): {', '.join(failed)}")
+
+    logger = logger_for(schema)
+    try:
+        if manifest:
+            files = [row[4] for row in manifest]
+            _deliver(spark, folder, files, manifest_name, config, stamp, logger)
+        else:
+            logger.warning(
+                name="nothing_to_export",
+                source=_SOURCE,
+                description=f"Every object of {schema} is empty; nothing delivered",
+            )
+    finally:
+        logger.flush()
 
 
 def main() -> None:

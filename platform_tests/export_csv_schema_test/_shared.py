@@ -22,9 +22,14 @@ SITE_TABLE = "SITE"
 CONTACT_TABLE = "CONTACT"
 SITE_VIEW = "SITE_DE"
 
-# The export clears and refills {preparation_path}/{schema_name}, so this is the folder
-# both rounds check.
-FOLDER = f"/Volumes/{CATALOG}/functional_testing/source_data/exports/{SCHEMA}"
+_VOLUME = f"/Volumes/{CATALOG}/functional_testing/source_data"
+# The export clears and refills {preparation_path}/exports_temp/{name}, so this is the
+# folder both rounds check.
+FOLDER = f"{_VOLUME}/exports/exports_temp/PLATFORM_TEST"
+# The whole round delivers loose files to a destination of its own; the subset round has
+# none, so its zip lands in {preparation_path}/deliveries/{name}.
+DESTINATION = f"{_VOLUME}/deliveries/export_csv_schema"
+DEFAULT_DELIVERY = f"{_VOLUME}/exports/deliveries/PLATFORM_TEST"
 
 # A quote, a line break, a NULL and an empty string: the values RFC 4180 and the
 # NULL-as-empty rule have to keep apart.
@@ -123,6 +128,12 @@ def expect_manifest(files: list, algorithm: str, expected: dict) -> None:
         assert version.isdigit() if pinned else version == "", f"{name} version: {version!r}"
         with open(os.path.join(FOLDER, f"{file_name[:-4]}.{algorithm}"), encoding="ascii") as h:
             assert checksum == h.read(), f"{name}: manifest checksum differs from its file's"
+
+
+def expect_built(path: str, name: str) -> None:
+    """The delivered file at path is, byte for byte, the one built as name in FOLDER."""
+    with open(path, "rb") as delivered, open(os.path.join(FOLDER, name), "rb") as built:
+        assert delivered.read() == built.read(), f"{path} differs from the {name} built"
 
 
 def expect_site_view(name: str) -> None:

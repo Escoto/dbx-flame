@@ -1,11 +1,15 @@
 """Step 3 — a subset named in mixed case, stamped with the date in Europe/Berlin.
 
-The run clears the schema's folder first, so the whole export's files must be gone. It
+The run clears the export's folder first, so the whole export's files must be gone. It
 keeps framework columns, renames SITE_ID in SITE and leaves EMAIL out of CONTACT; the
-setting for SITE_DE, which isn't exported, is skipped.
+setting for SITE_DE, which isn't exported, is skipped. With no destination, it delivers
+one stamped zip and its checksum to the default deliveries folder.
 """
 
+import hashlib
+import os
 import sys
+import zipfile
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -15,8 +19,10 @@ sys.path.append(sys.argv[1])
 
 from _shared import (  # noqa: E402
     CONTACT_COLUMNS,
+    DEFAULT_DELIVERY,
     SITE_COLUMNS,
     data_files,
+    expect_built,
     expect_contact,
     expect_manifest,
     expect_site,
@@ -42,5 +48,23 @@ expect_manifest(
     "md5",
     {"CONTACT": ("MANAGED", True, 2, contact), "SITE": ("MANAGED", True, 3, site)},
 )
+
+# The zip carries the run's stamp, as the data files do.
+stem = f"PLATFORM_TEST_{contact[len('CONTACT_'):-len('.csv')]}"
+delivered = sorted(os.listdir(DEFAULT_DELIVERY))
+assert delivered == [f"{stem}.md5", f"{stem}.zip"], f"delivered {delivered}"
+zip_path = os.path.join(DEFAULT_DELIVERY, f"{stem}.zip")
+expect_built(zip_path, f"{stem}.zip")
+
+# Every file built sits at the zip's root, the manifest and its checksum included.
+with zipfile.ZipFile(zip_path) as package:
+    zipped = sorted(package.namelist())
+built = [name for name in files if not name.startswith(f"{stem}.")]
+assert zipped == built, f"zip holds {zipped}, built {built}"
+
+with open(zip_path, "rb") as handle:
+    digest = hashlib.md5(handle.read()).hexdigest()
+with open(os.path.join(DEFAULT_DELIVERY, f"{stem}.md5"), encoding="ascii") as handle:
+    assert handle.read() == digest, "the zip's md5 file differs from its hash"
 
 print("subset export validated")
