@@ -15,8 +15,8 @@ Task 2 starts when task 1 is complete.
 
 | Task | Reads | Writes |
 |---|---|---|
-| 1. `landing_to_bronze_site` | Only the new CSV files in `raw/inbound/SITE/` | APPEND: adds each export to `bronze.SITE_BRONZE` |
-| 2. `bronze_to_silver_site` | Only the rows that task 1 added | FULL: replaces `silver.SITE_SILVER` with the newest export |
+| 1. `landing_to_bronze_site` | Only the new CSV files in `raw/inbound/SITE/` | APPEND: adds each export to `bronze.SITE` |
+| 2. `bronze_to_silver_site` | Only the rows that task 1 added | FULL: replaces `silver.SITE` with the newest export |
 
 The job uses dbx-flame `0.1.0` from PyPI. Do not change the version without a review.
 
@@ -72,13 +72,13 @@ After the second run:
 
 | Table | Contents |
 |---|---|
-| `edc_dev.bronze.SITE_BRONZE` | Both exports, 5 rows (3 + 2). Each row has `__SOURCE` (its file) and `__EXPORT_DATE` (the time in the file name). |
-| `edc_dev.silver.SITE_SILVER` | Only the export of 2026-11-02, 2 rows. `S003` is not in Silver. |
+| `edc_dev.bronze.SITE` | Both exports, 5 rows (3 + 2). Each row has `__SOURCE` (its file) and `__EXPORT_DATE` (the time in the file name). |
+| `edc_dev.silver.SITE` | Only the export of 2026-11-02, 2 rows. `S003` is not in Silver. |
 | `monitoring_dev.audit.logs` | One or more rows for each task run. |
 
 ```sql
-SELECT __EXPORT_DATE, COUNT(*) AS ROW_COUNT FROM edc_dev.bronze.SITE_BRONZE GROUP BY 1 ORDER BY 1 DESC;
-SELECT * FROM edc_dev.silver.SITE_SILVER;
+SELECT __EXPORT_DATE, COUNT(*) AS ROW_COUNT FROM edc_dev.bronze.SITE GROUP BY 1 ORDER BY 1 DESC;
+SELECT * FROM edc_dev.silver.SITE;
 ```
 
 If you run the job again without a new file, the tables do not change.

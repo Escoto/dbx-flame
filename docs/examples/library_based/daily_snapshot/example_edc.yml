@@ -85,9 +85,9 @@ resources:
               <<: [*shared_params, *identity]
               source.origin: table
               source.schema_name: bronze
-              source.table: SITE_BRONZE
+              source.table: SITE
               source.increment_strategy: checkpoint
               # FULL keeps only the newest export of each run even if we have a backlog of several exports.
               output.verb: full
               output.schema_name: silver
-              output.table: SITE_SILVER
+              output.table: SITE
