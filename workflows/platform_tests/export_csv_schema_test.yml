@@ -6,7 +6,9 @@
 # names and leaves the framework column out; the second names a subset in mixed case,
 # with names stamped in Europe/Berlin, keeps the framework column, excludes and renames
 # columns, and must replace the first export's files. Both check every file's checksum
-# (sha256, then md5) and the manifest listing each object (gh #44).
+# (sha256, then md5) and the manifest listing each object (gh #44). The first delivers
+# loose files to a destination of its own; the second, with none, a stamped zip to the
+# default deliveries folder (gh #45).
 
 base: &base ${workspace.file_path}/platform_tests/export_csv_schema_test
 cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/export_csv_schema_test/0_cleanup.py
@@ -27,6 +29,8 @@ whole_params: &whole_params
   <<: *shared_params
   export.stamp_format: "%Y%m%dT%H%M%S"
   export.checksum: sha256
+  export.package: files
+  export.destination: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/deliveries/export_csv_schema/
 
 subset_params: &subset_params
   <<: *shared_params
@@ -34,6 +38,7 @@ subset_params: &subset_params
   export.stamp_format: "%Y-%m-%d"
   export.timezone: Europe/Berlin
   export.checksum: md5
+  export.package: zip
   export.with_ts_object_names: true
   export.exclude_metadata: false
   export.renames.SITE.SITE_ID: ID

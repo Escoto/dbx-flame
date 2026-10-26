@@ -1,4 +1,4 @@
-"""Step 0 — put this test's own objects and export folder back to nothing.
+"""Step 0 — put this test's own objects, export folder and deliveries back to nothing.
 
 Scoped deliberately: the exports root is shared with the other platform tests.
 """
@@ -10,7 +10,15 @@ import sys
 # the workflow passes this script's directory as the first parameter.
 sys.path.append(sys.argv[1])
 
-from _shared import CONTACT_TABLE, FOLDER, SITE_TABLE, SITE_VIEW, table  # noqa: E402
+from _shared import (  # noqa: E402
+    CONTACT_TABLE,
+    DEFAULT_DELIVERY,
+    DESTINATION,
+    FOLDER,
+    SITE_TABLE,
+    SITE_VIEW,
+    table,
+)
 from pyspark.sql import SparkSession  # noqa: E402
 
 spark = SparkSession.builder.getOrCreate()
@@ -20,5 +28,6 @@ for name in (SITE_TABLE, CONTACT_TABLE):
     spark.sql(f"DROP TABLE IF EXISTS {table(name)}")
 print(f"dropped {SITE_VIEW}, {SITE_TABLE}, {CONTACT_TABLE}")
 
-shutil.rmtree(FOLDER, ignore_errors=True)
-print(f"cleared {FOLDER}")
+for folder in (FOLDER, DESTINATION, DEFAULT_DELIVERY):
+    shutil.rmtree(folder, ignore_errors=True)
+    print(f"cleared {folder}")

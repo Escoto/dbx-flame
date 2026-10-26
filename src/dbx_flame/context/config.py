@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime
 from enum import StrEnum
@@ -74,6 +75,11 @@ class ChecksumAlgorithm(StrEnum):
     MD5 = "md5"
     SHA256 = "sha256"
     SHA512 = "sha512"
+
+
+class Package(StrEnum):
+    ZIP = "zip"
+    FILES = "files"
 
 
 class EventTimeConfig(BaseModel):
@@ -306,9 +312,18 @@ class ExportConfig(BaseModel):
     stamp_format: str
     # No default: a delivery names the algorithm its receiver verifies with.
     checksum: ChecksumAlgorithm
+    package: Package
+    # Any location the receiver reads from, as given; empty delivers to
+    # {preparation_path}/deliveries/{name}.
+    destination: Optional[str] = None
     # The zone the stamp is taken in: a receiver dates its deliveries in its own time.
     timezone: str = "UTC"
     with_ts_object_names: bool = False
+    with_ts_zip: bool = True
+    with_zip_checksum: bool = True
+    with_manifest: bool = True
+    # Leaves objects with no rows out of the delivery and the manifest.
+    skip_empty: bool = True
     # Framework (__) columns trace our own processing, not the receiver's data.
     exclude_metadata: bool = True
     # export.excludes.<object>: "A, B" leaves those columns out of that object's file.
@@ -345,6 +360,20 @@ class ExportConfig(BaseModel):
                 f"e.g. %Y%m%dT%H%M%S, got '{value}'"
             )
         return value
+
+    @model_validator(mode="after")
+    def _delivery_settings_apply(self) -> "ExportConfig":
+        """A zip flag would do nothing for loose files, and a run clears exports_temp."""
+        zip_flags = sorted({"with_ts_zip", "with_zip_checksum"} & self.model_fields_set)
+        if self.package == Package.FILES and zip_flags:
+            raise ValueError(f"{', '.join(zip_flags)} only apply with export.package: zip")
+        temp = os.path.normpath(os.path.join(self.preparation_path, "exports_temp"))
+        destination = os.path.normpath(self.destination or "/")
+        if destination == temp or destination.startswith(f"{temp}/"):
+            raise ValueError(
+                f"export.destination must not be inside {temp}, which every run clears"
+            )
+        return self
 
     @model_validator(mode="after")
     def _renames_name_kept_columns(self) -> "ExportConfig":

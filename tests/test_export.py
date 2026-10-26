@@ -5,7 +5,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import os
+import shutil
 import uuid
+import zipfile
 from collections import defaultdict
 from unittest.mock import MagicMock, patch
 
@@ -27,9 +29,26 @@ PARAMS = {
     "export.preparation_path": "/Volumes/codex_dev_01/metadata/exports/",
     "export.stamp_format": "%Y%m%dT%H%M%S",
     "export.checksum": "sha256",
+    "export.package": "zip",
 }
 
 MANIFEST = f"CRO_MANIFEST_{STAMP}"
+
+
+@pytest.fixture(autouse=True)
+def copies():
+    """dbutils.fs.cp as a local copy, recording each target in the order it was copied."""
+    copied: list[str] = []
+
+    def cp(source, target):
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copy(source, target)
+        copied.append(target)
+
+    dbutils = MagicMock()
+    dbutils.fs.cp.side_effect = cp
+    with patch("dbx_flame.entrypoints.export._get_dbutils", return_value=dbutils):
+        yield copied
 
 
 @pytest.fixture(autouse=True)
@@ -71,15 +90,19 @@ def _config(schema, tmp_path, tables=(), with_ts=False, **settings):
         preparation_path=str(tmp_path),
         stamp_format="%Y",
         with_ts_object_names=with_ts,
-        **{"checksum": "sha256", **settings},
+        **{"checksum": "sha256", "package": "files", **settings},
     )
+
+
+def _folder(tmp_path):
+    return tmp_path / "exports_temp" / "CRO"
 
 
 def _export(spark, schema, tmp_path, tables=(), with_ts=False, **settings):
     loggers = defaultdict(MagicMock)
     config = _config(schema, tmp_path, tables, with_ts, **settings)
     export_objects(spark, f"`{schema}`", config, STAMP, loggers.__getitem__)
-    return tmp_path / schema, loggers
+    return _folder(tmp_path), loggers
 
 
 def _csvs(folder):
@@ -103,8 +126,8 @@ def _header(path):
 
 def _previous_export(tmp_path, schema):
     """A file from an earlier run, which a refused run must leave in place."""
-    previous = tmp_path / schema / "previous_export.csv"
-    previous.parent.mkdir()
+    previous = _folder(tmp_path) / "previous_export.csv"
+    previous.parent.mkdir(parents=True)
     previous.write_text("kept")
     return previous
 
@@ -230,11 +253,12 @@ def test_export_skips_settings_of_an_object_it_does_not_export(spark, schema, tm
     assert warning.call_args.kwargs["name"] == "export_settings_skipped"
 
 
-def test_export_clears_only_its_own_schema_folder(spark, schema, tmp_path):
-    stale = tmp_path / schema / "stale.csv"
-    neighbour = tmp_path / "other_schema" / "keep.csv"
+def test_export_clears_only_its_own_folder(spark, schema, tmp_path):
+    """Another export, even of the same schema, builds under its own name."""
+    stale = _folder(tmp_path) / "stale.csv"
+    neighbour = tmp_path / "exports_temp" / "OTHER" / "keep.csv"
     for path in (stale, neighbour):
-        path.parent.mkdir()
+        path.parent.mkdir(parents=True)
         path.write_text("x")
 
     _export(spark, schema, tmp_path, tables=["SITES"])
@@ -243,7 +267,9 @@ def test_export_clears_only_its_own_schema_folder(spark, schema, tmp_path):
     assert neighbour.exists()
 
 
-def test_export_attempts_every_object_before_failing_the_run(spark, schema, tmp_path):
+def test_export_attempts_every_object_before_failing_the_run_and_delivers_nothing(
+    spark, schema, tmp_path, copies
+):
     spark.sql(f"CREATE TABLE `{schema}`.`GONE` (ID INT) USING DELTA")
     spark.sql(f"CREATE VIEW `{schema}`.`BROKEN` AS SELECT * FROM `{schema}`.`GONE`")
     spark.sql(f"DROP TABLE `{schema}`.`GONE`")
@@ -252,8 +278,10 @@ def test_export_attempts_every_object_before_failing_the_run(spark, schema, tmp_
     with pytest.raises(RuntimeError, match="1 object\\(s\\): broken"):
         export_objects(spark, f"`{schema}`", _config(schema, tmp_path), STAMP, loggers.__getitem__)
 
-    assert _csvs(tmp_path / schema) == ["SITES.csv", "SUBJECTS.csv"]
-    assert sorted(_manifest(tmp_path / schema)) == ["SITES", "SUBJECTS"]
+    # The preparation path keeps what succeeded, for inspection.
+    assert _csvs(_folder(tmp_path)) == ["SITES.csv", "SUBJECTS.csv"]
+    assert sorted(_manifest(_folder(tmp_path))) == ["SITES", "SUBJECTS"]
+    assert copies == []
     error = loggers[f"`{schema}`.`broken`"].error
     assert error.call_args.kwargs["name"] == "object_export_failure"
 
@@ -274,7 +302,7 @@ def test_export_manifest_lists_each_object_with_its_version_count_and_checksum(
     spark.sql(f"CREATE VIEW `{schema}`.`SUBJECT_IDS` AS SELECT ID FROM `{schema}`.`SUBJECTS`")
     spark.sql(f"CREATE TABLE `{schema}`.`EMPTY` (ID INT) USING DELTA")
 
-    folder, _ = _export(spark, schema, tmp_path)
+    folder, _ = _export(spark, schema, tmp_path, skip_empty=False)
 
     checksum = (folder / "SUBJECTS.sha256").read_text(encoding="ascii")
     assert _manifest(folder) == {
@@ -340,7 +368,7 @@ def test_export_fails_an_object_whose_file_holds_fewer_rows_than_its_version(
     assert logger.error.call_args.kwargs["name"] == "export_row_count_mismatch"
     assert "holds 0 rows" in logger.error.call_args.kwargs["description"]
     logger.kpi.assert_not_called()
-    assert _manifest(tmp_path / schema) == {}
+    assert _manifest(_folder(tmp_path)) == {}
 
 
 def test_export_warns_of_a_table_it_cannot_pin(spark, schema, tmp_path, object_types):
@@ -352,6 +380,86 @@ def test_export_warns_of_a_table_it_cannot_pin(spark, schema, tmp_path, object_t
     assert _manifest(folder)["SITES"][:3] == ["FOREIGN", "", "1"]
     warning = loggers[f"`{schema}`.`sites`"].warning.call_args.kwargs
     assert warning["name"] == "object_not_versioned"
+
+
+def test_export_delivers_files_with_the_manifest_last(spark, schema, tmp_path, copies):
+    """No destination: the delivery lands in {preparation_path}/deliveries/{name}."""
+    _, loggers = _export(spark, schema, tmp_path)
+
+    delivered = tmp_path / "deliveries" / "CRO"
+    assert [os.path.basename(target) for target in copies] == [
+        "SITES.csv",
+        "SITES.sha256",
+        "SUBJECTS.csv",
+        "SUBJECTS.sha256",
+        f"{MANIFEST}.csv",
+        f"{MANIFEST}.sha256",
+    ]
+    assert {os.path.dirname(target) for target in copies} == {str(delivered)}
+    info = loggers[f"`{schema}`"].info.call_args.kwargs
+    assert info["name"] == "delivery_complete"
+    assert info["description"] == f"Files delivered to {delivered}"
+
+
+@pytest.mark.parametrize(("with_ts_zip", "stem"), [(True, f"CRO_{STAMP}"), (False, "CRO")])
+def test_export_delivers_one_zip_with_its_checksum_last(
+    spark, schema, tmp_path, copies, with_ts_zip, stem
+):
+    destination = tmp_path / "receiver"
+    _export(
+        spark,
+        schema,
+        tmp_path,
+        package="zip",
+        destination=str(destination),
+        with_ts_zip=with_ts_zip,
+    )
+
+    assert copies == [str(destination / f"{stem}.zip"), str(destination / f"{stem}.sha256")]
+    with zipfile.ZipFile(destination / f"{stem}.zip") as package:
+        assert sorted(package.namelist()) == [
+            f"{MANIFEST}.csv",
+            f"{MANIFEST}.sha256",
+            "SITES.csv",
+            "SITES.sha256",
+            "SUBJECTS.csv",
+            "SUBJECTS.sha256",
+        ]
+    zipped = hashlib.sha256((destination / f"{stem}.zip").read_bytes()).hexdigest()
+    assert (destination / f"{stem}.sha256").read_text(encoding="ascii") == zipped
+
+
+def test_export_delivers_neither_manifest_nor_zip_checksum_when_off(
+    spark, schema, tmp_path, copies
+):
+    _export(spark, schema, tmp_path, package="zip", with_manifest=False, with_zip_checksum=False)
+
+    [target] = copies
+    with zipfile.ZipFile(target) as package:
+        assert not [name for name in package.namelist() if "MANIFEST" in name]
+
+
+def test_export_leaves_an_empty_object_out_of_the_delivery_and_manifest(
+    spark, schema, tmp_path, copies
+):
+    spark.sql(f"CREATE TABLE `{schema}`.`EMPTY` (ID INT) USING DELTA")
+
+    folder, loggers = _export(spark, schema, tmp_path)
+
+    assert sorted(_manifest(folder)) == ["SITES", "SUBJECTS"]
+    assert not [target for target in copies if "EMPTY" in target]
+    warning = loggers[f"`{schema}`.`empty`"].warning.call_args.kwargs
+    assert warning["name"] == "nothing_to_export"
+
+
+def test_export_of_only_empty_objects_delivers_nothing(spark, schema, tmp_path, copies):
+    spark.sql(f"CREATE TABLE `{schema}`.`EMPTY` (ID INT) USING DELTA")
+
+    _, loggers = _export(spark, schema, tmp_path, tables=["EMPTY"])
+
+    assert copies == []
+    warning = loggers[f"`{schema}`"].warning.call_args.kwargs
+    assert warning["name"] == "nothing_to_export"
 
 
 @patch("dbx_flame.entrypoints.export.export_objects", side_effect=RuntimeError("boom"))
@@ -403,11 +511,32 @@ def test_export_config_loads_a_comma_separated_subset():
         ("export.timezone", "Mars/Olympus", "IANA time zone"),
         ("export.timezone", "../etc", "IANA time zone"),
         ("export.checksum", "crc32", "'md5', 'sha256' or 'sha512'"),
+        ("export.package", "tar", "'zip' or 'files'"),
+        # Every run clears exports_temp: a delivery there would be deleted by the next.
+        (
+            "export.destination",
+            "/Volumes/codex_dev_01/metadata/exports/exports_temp/CRO",
+            "must not be inside",
+        ),
     ],
 )
 def test_export_config_rejects(key, value, message):
     with pytest.raises(ConfigValidationError, match=message):
         load_config({**PARAMS, key: value}, ExportTaskConfig)
+
+
+@pytest.mark.parametrize("flag", ["export.with_ts_zip", "export.with_zip_checksum"])
+def test_export_config_rejects_a_zip_flag_for_loose_files(flag):
+    params = {**PARAMS, "export.package": "files", flag: "false"}
+
+    with pytest.raises(ConfigValidationError, match="only apply with export.package: zip"):
+        load_config(params, ExportTaskConfig)
+
+
+def test_export_config_takes_any_destination_outside_exports_temp():
+    params = {**PARAMS, "export.destination": "s3://receiver-bucket/system1/"}
+
+    assert load_config(params, ExportTaskConfig).export.destination == params["export.destination"]
 
 
 def test_export_config_loads_excludes_and_renames_per_object():
@@ -452,7 +581,7 @@ def test_export_config_renames_framework_columns_it_keeps():
     assert load_config(params, ExportTaskConfig).export.renames == {"SITES": {"__SOURCE": "FILE"}}
 
 
-@pytest.mark.parametrize("key", ["export.name", "export.checksum"])
+@pytest.mark.parametrize("key", ["export.name", "export.checksum", "export.package"])
 def test_export_config_requires(key):
     params = {name: value for name, value in PARAMS.items() if name != key}
 

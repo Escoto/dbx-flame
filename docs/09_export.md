@@ -6,8 +6,9 @@ verb: the ingest flow (typing, policies, dedup, provenance) doesn't apply, and o
 handles many objects. Objects are exported as they are, so prepare them in Gold first;
 the only shaping is leaving columns out and renaming them.
 
-Today a run builds the files, their checksums and a manifest in the preparation path.
-Delivery to a destination (gh #45) follows; the epic is gh #40.
+A run builds the files, their checksums and a manifest in the preparation path, then
+delivers them to a destination, as one zip or as loose files. The epic is gh #40;
+archiving earlier deliveries is gh #73.
 
 ## 1. A task
 
@@ -25,6 +26,8 @@ Delivery to a destination (gh #45) follows; the epic is gh #40.
       export.stamp_format: "%Y-%m-%d"
       export.timezone: Europe/Berlin
       export.checksum: sha256
+      export.package: zip
+      export.destination: s3://receiver/system1/
 ```
 
 The settings, and what Start rejects, are in
@@ -42,9 +45,10 @@ The settings, and what Start rejects, are in
    doesn't export are skipped, with an `export_settings_skipped` warning against it.
 3. **Takes one stamp**, rendered with `export.stamp_format` in `export.timezone`. Every
    stamped name of the run carries it.
-4. **Clears `{preparation_path}/{schema_name}`**, only that folder: the preparation path
-   may hold other schemas' exports. What a run writes stays there afterwards, for
-   inspection.
+4. **Clears `{preparation_path}/exports_temp/{name}`**, only that folder: the preparation
+   path may hold other exports, even of the same schema. What a run writes stays there
+   afterwards, for inspection. Two exports with the same `export.name` under one
+   preparation path would share this folder, so give each its own name.
 5. **Pins every Delta table to its current version** (a `MANAGED` or `EXTERNAL` table
    stored as Delta), so a commit landing mid-export reaches neither its file nor its
    count. Anything else, a view, materialized view or foreign table, has no time travel
@@ -60,13 +64,19 @@ The settings, and what Start rejects, are in
 7. **Seals each file** with a checksum beside it and counts its rows, both from one read
    of the file: see [4](#4-checksums-and-the-manifest). A pinned table whose file holds
    a different number of rows than its version fails that object (platform policy `export_row_count_mismatch`).
-8. **Attempts every object.** One that fails, such as a view whose source is gone, is
+8. **Leaves out empty objects** with `export.skip_empty` (default `true`): an object with
+   no rows is left out of the delivery and of the manifest, with a `nothing_to_export`
+   warning against it. Its file stays in the preparation path.
+9. **Attempts every object.** One that fails, such as a view whose source is gone, is
    logged against that object (`object_export_failure`) and the run fails once all were
-   attempted, keeping the files of the ones that succeeded.
-9. **Writes the manifest** of the objects exported, with its own checksum.
+   attempted, keeping the files of the ones that succeeded and **delivering nothing**.
+10. **Writes the manifest** of the objects to deliver, with its own checksum.
+11. **Delivers**: see [5](#5-delivery). When every object is empty, nothing is delivered
+    and a run-level `nothing_to_export` warning says so.
 
 The audit log gets `export_start` and `export_complete` (or `export_failure`) for the run,
-and, per object, a `rows_exported` KPI counted from the written file.
+`delivery_complete` naming where the delivery went, and, per object, a `rows_exported`
+KPI counted from the written file.
 
 ## 3. Columns
 
@@ -97,7 +107,8 @@ holds the bare hash only, exactly what `sha256sum` (or `md5sum`, `sha512sum`) pr
 the file without its file name: no spaces, no line break.
 
 The manifest, `<NAME>_MANIFEST_<stamp>.csv` with its own checksum file, is always written
-and always stamped. It lists every object exported, once, an empty one with `row_count` 0:
+and always stamped. It lists every object delivered, once. With `export.skip_empty` off,
+an empty object is delivered and listed with `row_count` 0:
 
 | Column | Holds |
 |---|---|
@@ -112,7 +123,27 @@ The rows are counted from the file itself, in the same read that hashes it, so t
 proves what the file holds rather than what was meant to go into it. An object that
 failed is not listed; its failure is in the audit log, and the run fails.
 
-## 5. CSV format
+## 5. Delivery
+
+`export.destination` is any location the cluster can write to, used as given: a Volume,
+`s3://...` or an Azure location. Without one, the delivery goes to
+`{preparation_path}/deliveries/{name}/`. Files land at the destination's root, copied with
+`dbutils.fs.cp`, which writes each file whole: a consumer never reads a partial file.
+
+| `export.package` | Delivers, in this order |
+|---|---|
+| `zip` | `<NAME>_<stamp>.zip` (`<NAME>.zip` with `export.with_ts_zip` off) holding every CSV and its checksum at its root, then the zip's checksum (`<NAME>_<stamp>.sha256`) with `export.with_zip_checksum` |
+| `files` | every CSV and its checksum, then the manifest and its checksum |
+
+`export.with_manifest` (default `true`) decides whether the manifest and its checksum are
+delivered: inside the zip, or last among the files. The file copied last marks the
+delivery complete.
+
+A delivery with the same names as an earlier one replaces it: an unstamped name is
+delivered again over the last, while stamped names pile up. Every delivery is logged as
+`delivery_complete`: `Zip delivered to <location>` or `Files delivered to <location>`.
+
+## 6. CSV format
 
 Fixed, not configurable:
 
