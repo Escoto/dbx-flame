@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.types import DecimalType, TimestampNTZType, TimestampType
 
 from dbx_flame.context.config import ExportTaskConfig, Package
 from dbx_flame.context.loader import load_config
@@ -31,7 +32,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from pyspark.dbutils import DBUtils
-    from pyspark.sql import DataFrame
+    from pyspark.sql import Column, DataFrame
+    from pyspark.sql.types import StructField
 
     from dbx_flame.context.config import ChecksumAlgorithm, ExportConfig
 
@@ -210,11 +212,34 @@ def _plan(
     return planned, unreadable
 
 
+def _as_stored(field: StructField) -> Column:
+    """The column as text holding exactly the value Delta stores, no digit added or cut.
+
+    Spark's CSV writer would cut timestamps to milliseconds, pad them to a fixed width,
+    render them in the session's time zone, and write small decimals in E-notation.
+    """
+    column = F.col(f"`{field.name}`")
+    if isinstance(field.dataType, TimestampType):
+        # Delta keeps the instant, not the zone it was written in: UTC is how it is stored.
+        utc = F.convert_timezone(None, F.lit("UTC"), column)
+        text = F.concat(F.regexp_replace(utc.cast("string"), " ", "T"), F.lit("Z"))
+    elif isinstance(field.dataType, TimestampNTZType):
+        text = F.regexp_replace(column.cast("string"), " ", "T")
+    elif isinstance(field.dataType, DecimalType):
+        scale = field.dataType.scale
+        pattern = f"0.{'0' * scale}" if scale else "0"
+        text = F.call_function("format_number", column, F.lit(pattern))
+    else:
+        return column
+    return text.alias(field.name)
+
+
 def _write_csv(frame: DataFrame, path: str) -> None:
     """Write one object to a single CSV at path."""
     staging = f"{path}_staging"
+    stored = frame.select(*[_as_stored(field) for field in frame.schema.fields])
     # repartition, not coalesce: coalesce(1) would also run the whole read in one task.
-    frame.repartition(1).write.options(**_CSV_OPTIONS).csv(staging)
+    stored.repartition(1).write.options(**_CSV_OPTIONS).csv(staging)
     [part] = [name for name in os.listdir(staging) if name.startswith("part-")]
     shutil.move(os.path.join(staging, part), path)
     shutil.rmtree(staging)

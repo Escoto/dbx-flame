@@ -9,7 +9,6 @@ import hashlib
 import io
 import os
 import sys
-from datetime import datetime, timezone
 
 # Every step is called with [base, catalog, env, ...]; the framework resolves the
 # catalog the same way.
@@ -32,13 +31,15 @@ DESTINATION = f"{_VOLUME}/deliveries/export_csv_schema"
 DEFAULT_DELIVERY = f"{_VOLUME}/exports/deliveries/PLATFORM_TEST"
 
 # A quote, a line break, a NULL and an empty string: the values RFC 4180 and the
-# NULL-as-empty rule have to keep apart.
+# NULL-as-empty rule have to keep apart. Timestamps and decimals are written as the
+# export must write them back: each holds exactly its own digits, which Spark's own CSV
+# format would cut (microseconds), pad (.120) or turn to E-notation (0E-10).
 SITE_ROWS = [
-    ("S1", 'Clinic "North"', "DE", "2024-01-15", "2026-10-01T08:30:00Z"),
-    ("S2", "Line\nbreak", "FR", "2024-02-29", "2026-10-02T23:59:59Z"),
-    ("S3", None, "", "2024-03-01", "2026-10-03T00:00:00Z"),
+    ("S1", 'Clinic "North"', "DE", "2024-01-15", "2026-10-01T08:30:00.123456Z", "0.0000000000"),
+    ("S2", "Line\nbreak", "FR", "2024-02-29", "2026-10-02T23:59:59Z", "0.0000000100"),
+    ("S3", None, "", "2024-03-01", "2026-10-03T00:00:00.12Z", None),
 ]
-SITE_COLUMNS = ["SITE_ID", "NAME", "COUNTRY", "OPENED", "UPDATED_AT"]
+SITE_COLUMNS = ["SITE_ID", "NAME", "COUNTRY", "OPENED", "UPDATED_AT", "BUDGET"]
 # A framework column on every SITE row: left out unless export.exclude_metadata is off.
 SITE_SOURCE = "site_export.csv"
 
@@ -69,17 +70,15 @@ def _read(name: str) -> tuple:
 
 
 def expect_site(name: str, header: list = SITE_COLUMNS) -> None:
-    """SITE's rows under header; a sixth column is the framework's __SOURCE."""
+    """SITE's rows under header; a seventh column is the framework's __SOURCE."""
     text, written_header, rows = _read(name)
     assert written_header == header, f"{name} header differs: {written_header}"
     assert len(rows) == len(SITE_ROWS), f"{name} holds {len(rows)} rows: {rows}"
-    for row, (site_id, site_name, country, opened, updated) in zip(rows, SITE_ROWS):
-        assert row[:4] == [site_id, site_name or "", country, opened], f"{name} row: {row}"
-        # Spark writes the timestamp in its session zone; it must be the same instant.
-        written = datetime.fromisoformat(row[4])
-        expected = datetime.fromisoformat(updated).astimezone(timezone.utc)
-        assert written == expected, f"{name} {site_id} UPDATED_AT: {row[4]} != {updated}"
-        assert row[5:] == [SITE_SOURCE] * (len(header) - 5), f"{name} row: {row}"
+    width = len(SITE_COLUMNS)
+    for row, site in zip(rows, SITE_ROWS):
+        # Exact text: the same on any cluster, whatever its session time zone.
+        assert row[:width] == [value or "" for value in site], f"{name} row: {row}"
+        assert row[width:] == [SITE_SOURCE] * (len(header) - width), f"{name} row: {row}"
     # csv.reader can't tell NULL from an empty string; the file must.
     assert '\nS3,,"",' in text, f"{name} must write NULL as empty and '' as \"\""
 

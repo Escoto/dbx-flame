@@ -23,11 +23,12 @@ from pyspark.sql import functions as F  # noqa: E402
 spark = SparkSession.builder.getOrCreate()
 
 # Strings first, then cast: a timestamp with its zone parses to the same instant on any
-# cluster, so the validation can compare instants rather than session-dependent text.
+# cluster, and the export writes it back as the same text.
 site = (
     spark.createDataFrame(SITE_ROWS, ", ".join(f"{name} string" for name in SITE_COLUMNS))
     .withColumn("OPENED", F.col("OPENED").cast("date"))
     .withColumn("UPDATED_AT", F.col("UPDATED_AT").cast("timestamp"))
+    .withColumn("BUDGET", F.col("BUDGET").cast("decimal(20,10)"))
     .withColumn("__SOURCE", F.lit(SITE_SOURCE))
 )
 site.write.format("delta").saveAsTable(table(SITE_TABLE))

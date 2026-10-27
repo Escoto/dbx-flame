@@ -179,6 +179,59 @@ def test_export_follows_rfc_4180_and_keeps_values_as_they_are(spark, schema, tmp
     assert '\n5,""\n' in text
 
 
+def _export_values(spark, schema, tmp_path, select):
+    """The lines of the CSV a one-object export writes for the table select builds."""
+    spark.sql(f"CREATE TABLE `{schema}`.`MEASURES` USING DELTA AS {select}")
+    folder, _ = _export(spark, schema, tmp_path, tables=["MEASURES"])
+    return sorted((folder / "MEASURES.csv").read_text(encoding="utf-8").splitlines()[1:])
+
+
+def test_export_writes_timestamps_with_exactly_the_digits_they_hold(spark, schema, tmp_path):
+    """Spark's own format cuts to milliseconds and pads; the session zone must not matter."""
+    zone = spark.conf.get("spark.sql.session.timeZone")
+    spark.conf.set("spark.sql.session.timeZone", "Asia/Kolkata")
+    try:
+        lines = _export_values(
+            spark,
+            schema,
+            tmp_path,
+            "SELECT * FROM VALUES "
+            "(1, TIMESTAMP'2026-10-20 08:30:00Z', TIMESTAMP_NTZ'2026-10-20 08:30:00'), "
+            "(2, TIMESTAMP'2026-10-20 08:30:00.12Z', TIMESTAMP_NTZ'2026-10-20 08:30:00.120'), "
+            "(3, TIMESTAMP'2026-10-20 08:30:00.123456Z', "
+            "TIMESTAMP_NTZ'2026-10-20 08:30:00.000001'), "
+            "(4, NULL, NULL) AS t(ID, AT, AT_NTZ)",
+        )
+    finally:
+        spark.conf.set("spark.sql.session.timeZone", zone)
+
+    assert lines == [
+        "1,2026-10-20T08:30:00Z,2026-10-20T08:30:00",
+        "2,2026-10-20T08:30:00.12Z,2026-10-20T08:30:00.12",
+        "3,2026-10-20T08:30:00.123456Z,2026-10-20T08:30:00.000001",
+        "4,,",
+    ]
+
+
+def test_export_writes_decimals_in_plain_notation_with_their_scale(spark, schema, tmp_path):
+    """Spark's own format writes 0 at scale 10 as 0E-10."""
+    lines = _export_values(
+        spark,
+        schema,
+        tmp_path,
+        "SELECT * FROM VALUES "
+        "(1, CAST(0 AS DECIMAL(20,10)), CAST(-12345 AS DECIMAL(5,0))), "
+        "(2, CAST(0.00000001 AS DECIMAL(20,10)), CAST(0 AS DECIMAL(5,0))), "
+        "(3, CAST(-9999999999.9999999999 AS DECIMAL(20,10)), NULL) AS t(ID, AMOUNT, WHOLE)",
+    )
+
+    assert lines == [
+        "1,0.0000000000,-12345",
+        "2,0.0000000100,0",
+        "3,-9999999999.9999999999,",
+    ]
+
+
 def test_export_of_named_objects_matches_names_in_any_case(spark, schema, tmp_path):
     folder, _ = _export(spark, schema, tmp_path, tables=["Sites"])
 

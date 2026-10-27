@@ -143,9 +143,20 @@ A delivery with the same names as an earlier one replaces it: an unstamped name 
 delivered again over the last, while stamped names pile up. Every delivery is logged as
 `delivery_complete`: `Zip delivered to <location>` or `Files delivered to <location>`.
 
+**Known risk: a copy that fails mid-delivery.** The files are copied one by one, and
+nothing already copied is rolled back. With `package: files`, a copy that fails leaves
+part of the delivery at the destination, and the run fails with `export_failure`. With
+unstamped names, the destination then mixes files of this run and the last, and each of
+them still matches its own checksum. The manifest, copied last and always stamped, is
+what tells a consumer that a delivery is complete: keep `with_manifest` on when names
+are unstamped. With `package: zip`, the zip is one file and arrives whole or not at all;
+a failure between the zip and its checksum leaves the zip without its new checksum.
+
 ## 6. CSV format
 
-Fixed, not configurable:
+Fixed, not configurable. Every value is written exactly as Delta stores it: no digit is
+added, cut or rounded, and the file is the same on any cluster, whatever its session
+time zone.
 
 | Rule | Value |
 |---|---|
@@ -155,5 +166,14 @@ Fixed, not configurable:
 | NULL | empty: `1,,x` |
 | Empty string | `""`: `1,"",x` |
 | Dates | ISO 8601: `2026-10-20` |
-| Timestamps | ISO 8601 in the cluster's session time zone, with its offset: `2026-10-20T08:30:00.000Z` |
+| `TIMESTAMP` | ISO 8601 in UTC, with the fraction the value holds and no padding: `2026-10-20T08:30:00Z`, `2026-10-20T08:30:00.12Z`, `2026-10-20T08:30:00.123456Z` |
+| `TIMESTAMP_NTZ` | ISO 8601 as stored, without a zone: `2026-10-20T08:30:00.123456` |
+| Decimals | plain notation with every digit of the column's scale: `DECIMAL(20,10)` zero is `0.0000000000`, never `0E-10` |
+| Floating point | as Java prints a `DOUBLE` or `FLOAT`: the shortest text that reads back to the same value, in E-notation for large or small values (`1.0E20`) |
 | Whitespace | kept as it is; leading and trailing spaces are not trimmed |
+
+Two limits come from Delta, not from the export. A `TIMESTAMP` stores an instant, not
+the zone it was written in, so it is written in UTC: a source that must keep its
+original offset holds it in a `STRING`, which is exported as it is. And Delta stores
+every timestamp in microseconds, so `.120000` and `.12` are the same value, written
+`.12`.
