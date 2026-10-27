@@ -76,7 +76,8 @@ The settings, and what Start rejects, are in
 
 The audit log gets `export_start` and `export_complete` (or `export_failure`) for the run,
 `delivery_complete` naming where the delivery went, and, per object, a `rows_exported`
-KPI counted from the written file.
+KPI counted from the written file. Every file delivered also gets a `file_delivered` row:
+see [5](#5-delivery).
 
 ## 3. Columns
 
@@ -143,13 +144,38 @@ A delivery with the same names as an earlier one replaces it: an unstamped name 
 delivered again over the last, while stamped names pile up. Every delivery is logged as
 `delivery_complete`: `Zip delivered to <location>` or `Files delivered to <location>`.
 
+### What was delivered, on record
+
+The files and the preparation folder don't last: the next run clears the folder, and an
+unstamped delivery replaces the last. The audit log does, so each file delivered gets one
+`file_delivered` row, written as soon as its copy succeeded. Its `metadata` holds:
+
+```json
+{"file": "SITE.csv", "algorithm": "sha256", "checksum": "9f86d0…", "version": 12, "location": "s3://receiver/system1/SITE.csv"}
+```
+
+| Field | Holds |
+|---|---|
+| `file` | the file's name as delivered |
+| `algorithm`, `checksum` | its hash, as in its checksum file |
+| `version` | the Delta version a CSV holds; `null` for a view, the manifest and the zip |
+| `location` | where it landed; for a file inside a zip, the zip |
+
+A CSV's row is written against its object, so the audit row's `table` names it; the
+manifest's and the zip's are written against the schema. Every CSV and the manifest, when
+delivered, get a row, and so does the zip, even with `with_zip_checksum` off. Checksum
+files get none: their content is the hash already on record. Together with the run
+identity every audit row carries, this proves which content of which object version went
+where, after the files themselves are gone.
+
 **Known risk: a copy that fails mid-delivery.** The files are copied one by one, and
 nothing already copied is rolled back. With `package: files`, a copy that fails leaves
 part of the delivery at the destination, and the run fails with `export_failure`. With
 unstamped names, the destination then mixes files of this run and the last, and each of
 them still matches its own checksum. The manifest, copied last and always stamped, is
 what tells a consumer that a delivery is complete: keep `with_manifest` on when names
-are unstamped. With `package: zip`, the zip is one file and arrives whole or not at all;
+are unstamped. The `file_delivered` rows record exactly which files arrived before the
+failure. With `package: zip`, the zip is one file and arrives whole or not at all;
 a failure between the zip and its checksum leaves the zip without its new checksum.
 
 ## 6. CSV format

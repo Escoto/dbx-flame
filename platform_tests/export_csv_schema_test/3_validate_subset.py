@@ -21,7 +21,9 @@ from _shared import (  # noqa: E402
     CONTACT_COLUMNS,
     DEFAULT_DELIVERY,
     SITE_COLUMNS,
+    FOLDER,
     data_files,
+    expect_audited,
     expect_built,
     expect_contact,
     expect_manifest,
@@ -66,5 +68,19 @@ with open(zip_path, "rb") as handle:
     digest = hashlib.md5(handle.read()).hexdigest()
 with open(os.path.join(DEFAULT_DELIVERY, f"{stem}.md5"), encoding="ascii") as handle:
     assert handle.read() == digest, "the zip's md5 file differs from its hash"
+
+# The zip and every CSV in it are on record; a file inside the zip is located by the zip.
+expect_audited(
+    "export_subset",
+    "md5",
+    {
+        f"{stem}.zip": (zip_path, zip_path),
+        **{
+            name: (zip_path, os.path.join(FOLDER, name))
+            for name in zipped
+            if name.endswith(".csv")
+        },
+    },
+)
 
 print("subset export validated")

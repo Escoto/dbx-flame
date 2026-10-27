@@ -7,6 +7,7 @@ under pytest, so a failed assert is what fails the task.
 import csv
 import hashlib
 import io
+import json
 import os
 import sys
 
@@ -133,6 +134,48 @@ def expect_built(path: str, name: str) -> None:
     """The delivered file at path is, byte for byte, the one built as name in FOLDER."""
     with open(path, "rb") as delivered, open(os.path.join(FOLDER, name), "rb") as built:
         assert delivered.read() == built.read(), f"{path} differs from the {name} built"
+
+
+def expect_audited(task_key: str, algorithm: str, expected: dict) -> None:
+    """Each delivered file has one file_delivered row holding the hash of what arrived.
+
+    expected maps a logged file name to (its location, the file whose bytes it hashes).
+    A validation step is called with the job's run id after [base, catalog, env], so it
+    reads only the rows its own export task wrote in this run.
+    """
+    from pyspark.sql import SparkSession
+    from pyspark.sql import functions as F
+
+    spark = SparkSession.builder.getOrCreate()
+    rows = (
+        spark.table(f"`monitoring_{sys.argv[3]}`.`audit`.`logs`")
+        .where(
+            (F.col("__workflow_run_id") == sys.argv[4])
+            & (F.col("__task_key") == task_key)
+            & (F.col("name") == "file_delivered")
+        )
+        .select("metadata")
+        .collect()
+    )
+    logged = [json.loads(row.metadata) for row in rows]
+    by_file = {record["file"]: record for record in logged}
+    assert len(by_file) == len(logged), f"a file is logged more than once: {logged}"
+    assert sorted(by_file) == sorted(expected), f"file_delivered rows for {sorted(by_file)}"
+
+    # The manifest names the version each data file holds; the manifest and zip hold none.
+    [manifest] = [name for name in expected if "_MANIFEST_" in name]
+    with open(os.path.join(FOLDER, manifest), newline="", encoding="utf-8") as handle:
+        versions = {row["export_file_name"]: row["version"] for row in csv.DictReader(handle)}
+
+    for name, (location, path) in expected.items():
+        record = by_file[name]
+        with open(path, "rb") as handle:
+            digest = hashlib.new(algorithm, handle.read()).hexdigest()
+        assert record["algorithm"] == algorithm, f"{name}: {record}"
+        assert record["checksum"] == digest, f"{name}: logged {record['checksum']}, not {digest}"
+        assert record["location"] == location, f"{name}: logged at {record['location']}"
+        version = versions.get(name) or None
+        assert record["version"] == (version and int(version)), f"{name}: {record}"
 
 
 def expect_site_view(name: str) -> None:

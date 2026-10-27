@@ -8,7 +8,8 @@
 # columns, and must replace the first export's files. Both check every file's checksum
 # (sha256, then md5) and the manifest listing each object (gh #44). The first delivers
 # loose files to a destination of its own; the second, with none, a stamped zip to the
-# default deliveries folder (gh #45).
+# default deliveries folder (gh #45). Both check the file_delivered audit row of every
+# file delivered against the bytes that arrived.
 
 base: &base ${workspace.file_path}/platform_tests/export_csv_schema_test
 cleanup_script: &cleanup_script ${workspace.file_path}/platform_tests/export_csv_schema_test/0_cleanup.py
@@ -101,7 +102,8 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *whole_check
-            parameters: [*base, *catalog, "${bundle.target}"]
+            # The run id finds this run's file_delivered rows in the audit table.
+            parameters: [*base, *catalog, "${bundle.target}", "{{job.run_id}}"]
 
         - task_key: &export_subset export_subset
           depends_on: [{task_key: *whole_validation}]
@@ -119,4 +121,4 @@ resources:
           job_cluster_key: *cluster
           spark_python_task:
             python_file: *subset_check
-            parameters: [*base, *catalog, "${bundle.target}"]
+            parameters: [*base, *catalog, "${bundle.target}", "{{job.run_id}}"]

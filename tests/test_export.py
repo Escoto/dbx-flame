@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 import os
 import shutil
 import uuid
 import zipfile
 from collections import defaultdict
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -490,6 +491,79 @@ def test_export_delivers_neither_manifest_nor_zip_checksum_when_off(
     [target] = copies
     with zipfile.ZipFile(target) as package:
         assert not [name for name in package.namelist() if "MANIFEST" in name]
+
+
+def _delivered(loggers):
+    """Each file_delivered row's metadata, by the source of the logger that wrote it."""
+    return {
+        record["file"]: (source, record)
+        for source, logger in loggers.items()
+        for logged in logger.info.call_args_list
+        if logged.kwargs["name"] == "file_delivered"
+        for record in [json.loads(logged.kwargs["metadata"])]
+    }
+
+
+def test_export_logs_each_delivered_file_with_its_checksum_and_version(spark, schema, tmp_path):
+    """The audit trail outlives the files: it alone proves what the receiver got."""
+    folder, loggers = _export(spark, schema, tmp_path)
+
+    delivered = tmp_path / "deliveries" / "CRO"
+
+    def row(source, file, version):
+        checksum = (folder / f"{file[:-4]}.sha256").read_text(encoding="ascii")
+        return source, {
+            "file": file,
+            "algorithm": "sha256",
+            "checksum": checksum,
+            "version": version,
+            "location": str(delivered / file),
+        }
+
+    assert _delivered(loggers) == {
+        "SITES.csv": row(f"`{schema}`.`sites`", "SITES.csv", 0),
+        "SUBJECTS.csv": row(f"`{schema}`.`subjects`", "SUBJECTS.csv", 0),
+        f"{MANIFEST}.csv": row(f"`{schema}`", f"{MANIFEST}.csv", None),
+    }
+
+
+def test_export_logs_the_zip_and_every_file_it_holds(spark, schema, tmp_path):
+    """The zip's hash is logged even when its checksum file isn't delivered."""
+    folder, loggers = _export(spark, schema, tmp_path, package="zip", with_zip_checksum=False)
+
+    zip_path = tmp_path / "deliveries" / "CRO" / f"CRO_{STAMP}.zip"
+    rows = _delivered(loggers)
+    assert sorted(rows) == [f"CRO_{STAMP}.zip", f"{MANIFEST}.csv", "SITES.csv", "SUBJECTS.csv"]
+    assert {record["location"] for _, record in rows.values()} == {str(zip_path)}
+
+    source, record = rows[f"CRO_{STAMP}.zip"]
+    assert source == f"`{schema}`"
+    assert record["checksum"] == hashlib.sha256(zip_path.read_bytes()).hexdigest()
+    assert record["version"] is None
+    assert not (folder / f"CRO_{STAMP}.sha256").exists()
+
+
+def test_export_logs_the_files_that_arrived_before_a_copy_failed(spark, schema, tmp_path, copies):
+    """The documented risk: what a failed delivery left at the destination is on record."""
+    copy = export._get_dbutils(spark).fs.cp.side_effect
+
+    def cp(source, target):
+        if target.endswith("SUBJECTS.csv"):
+            raise OSError("destination unreachable")
+        copy(source, target)
+
+    dbutils = MagicMock()
+    dbutils.fs.cp.side_effect = cp
+    loggers = defaultdict(MagicMock)
+    with (
+        patch("dbx_flame.entrypoints.export._get_dbutils", return_value=dbutils),
+        pytest.raises(OSError, match="unreachable"),
+    ):
+        export_objects(spark, f"`{schema}`", _config(schema, tmp_path), STAMP, loggers.__getitem__)
+
+    assert sorted(_delivered(loggers)) == ["SITES.csv"]
+    sites = loggers[f"`{schema}`.`sites`"]
+    assert sites.method_calls[-1] == call.flush()
 
 
 def test_export_leaves_an_empty_object_out_of_the_delivery_and_manifest(

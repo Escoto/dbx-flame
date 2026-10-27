@@ -71,6 +71,17 @@ class _Planned(NamedTuple):
     version: Optional[int]
 
 
+class _Built(NamedTuple):
+    """A file the run built for delivery, and what its file_delivered audit row records."""
+
+    file: str
+    checksum: str
+    # The Delta version the file holds; None for a view, the manifest and the zip.
+    version: Optional[int]
+    # The logger of the object the file holds, or the run's for the manifest and the zip.
+    logger: AuditLogger
+
+
 def _listed(spark: SparkSession, schema: str) -> list[str]:
     """The schema's tables and views, as the catalog names them."""
     listed = [
@@ -245,8 +256,8 @@ def _write_csv(frame: DataFrame, path: str) -> None:
     shutil.rmtree(staging)
 
 
-def _checksum(path: str, algorithm: ChecksumAlgorithm) -> tuple[str, int]:
-    """Write the file's hash beside it; return the hash and the records the file holds.
+def _hash(path: str, algorithm: ChecksumAlgorithm) -> tuple[str, int]:
+    """The file's hash and the records it holds.
 
     Both come from the one read of the file the hash needs anyway. Spark writes LF and
     doubles a quote inside a value, so a line break ends a record exactly when an even
@@ -262,21 +273,27 @@ def _checksum(path: str, algorithm: ChecksumAlgorithm) -> tuple[str, int]:
                     quoted = not quoted
                 if not quoted:
                     breaks += part.count(b"\n")
+    return digest.hexdigest(), breaks - 1  # the header
 
-    checksum = digest.hexdigest()
+
+def _checksum(path: str, algorithm: ChecksumAlgorithm) -> tuple[str, int]:
+    """Write the file's hash beside it; return the hash and the records the file holds."""
+    checksum, records = _hash(path, algorithm)
     # The bare hash, as md5sum and its siblings print it: no file name, no line break.
     with open(f"{os.path.splitext(path)[0]}.{algorithm.value}", "w", encoding="ascii") as out:
         out.write(checksum)
-    return checksum, breaks - 1  # the header
+    return checksum, records
 
 
-def _write_manifest(folder: str, file_name: str, rows: list[tuple], config: ExportConfig) -> None:
+def _write_manifest(folder: str, file_name: str, rows: list[tuple], config: ExportConfig) -> str:
+    """Write the manifest and its checksum file; return its checksum."""
     path = os.path.join(folder, file_name)
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(_MANIFEST_HEADER)
         writer.writerows(rows)
-    _checksum(path, config.checksum)
+    checksum, _ = _checksum(path, config.checksum)
+    return checksum
 
 
 def _get_dbutils(spark: SparkSession) -> DBUtils:
@@ -286,50 +303,90 @@ def _get_dbutils(spark: SparkSession) -> DBUtils:
     return DBUtils(spark)
 
 
+def _log_delivered(built: _Built, location: str, algorithm: str) -> None:
+    """Record what the receiver got: the audit trail outlives the files and the folder."""
+    built.logger.info(
+        name="file_delivered",
+        source=_SOURCE,
+        description=f"{built.file} delivered to {location}",
+        metadata=json.dumps(
+            {
+                "file": built.file,
+                "algorithm": algorithm,
+                "checksum": built.checksum,
+                "version": built.version,
+                "location": location,
+            }
+        ),
+    )
+
+
 def _deliver(
     spark: SparkSession,
     folder: str,
-    files: list[str],
-    manifest: str,
+    built: list[_Built],
     config: ExportConfig,
     stamp: str,
     logger: AuditLogger,
 ) -> None:
     """Copy the files, or their zip, to the destination; the file that marks it complete last.
 
-    dbutils copies each object whole, so a consumer never reads a partial file.
+    dbutils copies each object whole, so a consumer never reads a partial file. Each file
+    is logged as file_delivered once its copy succeeded, so a copy failing midway leaves
+    a record of exactly what arrived.
     """
     algorithm = config.checksum.value
-    with_checksums = [*files, *([manifest] if config.with_manifest else [])]
-    names = [n for f in with_checksums for n in (f, f"{os.path.splitext(f)[0]}.{algorithm}")]
-
-    if config.package == Package.ZIP:
-        stem = f"{config.name}_{stamp}" if config.with_ts_zip else config.name
-        # A Volume can't seek, which a zip needs to write its directory: build it on local
-        # disk, then copy it in whole.
-        with tempfile.TemporaryDirectory() as local:
-            built = os.path.join(local, f"{stem}.zip")
-            with zipfile.ZipFile(built, "w", zipfile.ZIP_DEFLATED) as z:
-                for name in names:
-                    z.write(os.path.join(folder, name), name)
-            shutil.copyfile(built, os.path.join(folder, f"{stem}.zip"))
-        names = [f"{stem}.zip"]
-        if config.with_zip_checksum:
-            _checksum(os.path.join(folder, f"{stem}.zip"), config.checksum)
-            names.append(f"{stem}.{algorithm}")
-
     destination = config.destination or os.path.join(
         config.preparation_path, "deliveries", config.name
     )
     dbutils = _get_dbutils(spark)
-    for name in names:
-        dbutils.fs.cp(os.path.join(folder, name), os.path.join(destination, name))
-    logger.info(
-        name="delivery_complete",
-        source=_SOURCE,
-        description=f"{config.package.value.capitalize()} delivered to {destination}",
-        total=len(names),
-    )
+    copied: list[str] = []
+
+    def checksum_file(name: str) -> str:
+        return f"{os.path.splitext(name)[0]}.{algorithm}"
+
+    def copy(name: str) -> str:
+        target = os.path.join(destination, name)
+        dbutils.fs.cp(os.path.join(folder, name), target)
+        copied.append(name)
+        return target
+
+    try:
+        if config.package == Package.ZIP:
+            zip_name = f"{config.name}_{stamp}.zip" if config.with_ts_zip else f"{config.name}.zip"
+            # A Volume can't seek, which a zip needs to write its directory: build it on
+            # local disk, then copy it in whole.
+            with tempfile.TemporaryDirectory() as local:
+                local_zip = os.path.join(local, zip_name)
+                with zipfile.ZipFile(local_zip, "w", zipfile.ZIP_DEFLATED) as z:
+                    for name in (n for b in built for n in (b.file, checksum_file(b.file))):
+                        z.write(os.path.join(folder, name), name)
+                shutil.copyfile(local_zip, os.path.join(folder, zip_name))
+            # The zip's hash is logged even when its checksum file isn't delivered.
+            seal = _checksum if config.with_zip_checksum else _hash
+            checksum, _ = seal(os.path.join(folder, zip_name), config.checksum)
+
+            location = copy(zip_name)
+            for each in [*built, _Built(zip_name, checksum, None, logger)]:
+                _log_delivered(each, location, algorithm)
+            if config.with_zip_checksum:
+                copy(checksum_file(zip_name))
+        else:
+            for each in built:
+                _log_delivered(each, copy(each.file), algorithm)
+                copy(checksum_file(each.file))
+
+        logger.info(
+            name="delivery_complete",
+            source=_SOURCE,
+            description=f"{config.package.value.capitalize()} delivered to {destination}",
+            total=len(copied),
+        )
+    finally:
+        # Also when a copy fails: the rows of the files that arrived must reach the audit
+        # table. The run's own logger is flushed by the caller.
+        for each in {b.logger for b in built}:
+            each.flush()
 
 
 def _file_name(name: str, stamp: str, with_stamp: bool) -> str:
@@ -362,6 +419,7 @@ def export_objects(
     os.makedirs(folder)
 
     manifest: list[tuple] = []
+    built: list[_Built] = []
     for name, read in planned.items():
         source = _source(schema, name)
         logger = logger_for(source)
@@ -402,6 +460,7 @@ def export_objects(
             manifest.append(
                 (name.upper(), read.object_type, read.version, rows, file_name, checksum)
             )
+            built.append(_Built(file_name, checksum, read.version, logger))
         except PlatformPolicyViolation:
             # violate() already wrote the audit row: no second object_export_failure.
             failed.append(name)
@@ -412,16 +471,17 @@ def export_objects(
             logger.flush()
 
     manifest_name = f"{config.name}_MANIFEST_{stamp}.csv"
-    _write_manifest(folder, manifest_name, manifest, config)
+    manifest_checksum = _write_manifest(folder, manifest_name, manifest, config)
 
     if failed:
         raise RuntimeError(f"Export failed for {len(failed)} object(s): {', '.join(failed)}")
 
     logger = logger_for(schema)
     try:
-        if manifest:
-            files = [row[4] for row in manifest]
-            _deliver(spark, folder, files, manifest_name, config, stamp, logger)
+        if built:
+            if config.with_manifest:
+                built.append(_Built(manifest_name, manifest_checksum, None, logger))
+            _deliver(spark, folder, built, config, stamp, logger)
         else:
             logger.warning(
                 name="nothing_to_export",

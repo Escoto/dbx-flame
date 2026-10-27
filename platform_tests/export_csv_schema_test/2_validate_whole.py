@@ -11,6 +11,7 @@ sys.path.append(sys.argv[1])
 from _shared import (  # noqa: E402
     DESTINATION,
     data_files,
+    expect_audited,
     expect_built,
     expect_contact,
     expect_manifest,
@@ -44,5 +45,16 @@ delivered = sorted(os.listdir(DESTINATION))
 assert delivered == files, f"delivered {delivered}, built {files}"
 for name in delivered:
     expect_built(os.path.join(DESTINATION, name), name)
+
+# Every CSV and the manifest is on record with the hash of the file that arrived.
+expect_audited(
+    "export_whole_schema",
+    "sha256",
+    {
+        name: (os.path.join(DESTINATION, name), os.path.join(DESTINATION, name))
+        for name in delivered
+        if name.endswith(".csv")
+    },
+)
 
 print("whole-schema export validated")
