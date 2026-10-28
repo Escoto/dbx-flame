@@ -132,8 +132,9 @@ default over changing behaviour for every task. Greenfield: "parity" is never a 
     `2_validate_bronze.py`, `3_validate_silver.py`. Scripts take `[*base, *catalog, env, round]`.
   - Clean **only** the test's own tables and directories; the suite runs in parallel.
   - Fixtures are deterministic and small; assert exact rows, not just counts.
-  - Register the job in `workflows/integration_test_suite.yml` and add a row to
-    `docs/05_testing.md`.
+  - Register the job in exactly one suite, `workflows/data_processing_test_suite.yml`
+    (ingest) or `workflows/export_test_suite.yml` (export), and add a row to
+    `docs/05_testing.md`. `integration_test_suite` runs both suites.
   - Validate with `databricks bundle validate -t dev` before handing over.
 
 ## 6. GitHub issues

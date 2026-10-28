@@ -61,12 +61,23 @@ Validation scripts assert on **data** — row counts, history chains, flags, val
 and the actual typed values — and on **schema**, including that no internal helper column
 leaked into the target.
 
-Each test cleans only its own directories and tables, so the whole suite can run in parallel:
+Each test cleans only its own directories and tables, so every test can run in parallel.
+Each test is registered in exactly one of two suites; run only the one a change can reach:
+
+| Suite | Runs | When |
+|---|---|---|
+| `data_processing_test_suite` | Every ingest test: Source → Bronze → Silver, every verb and reader | A change to ingest: `context/`, `pipelines/`, `typecast/`, `policies/`, `output/` |
+| `export_test_suite` | Every export test (`export_*`) | A change to the export: `entrypoints/export.py` and its config |
+| `integration_test_suite` | Both suites, in parallel | A change to shared code (`mechanics/`, `observability/`, config loading), and before a release |
 
 ```bash
 databricks bundle deploy -t dev -p <profile>
-databricks bundle run integration_test_suite -t dev -p <profile>
+databricks bundle run export_test_suite -t dev -p <profile>
 ```
+
+A new platform test goes in [data_processing_test_suite.yml](../workflows/data_processing_test_suite.yml)
+or [export_test_suite.yml](../workflows/export_test_suite.yml); the integration suite picks
+it up from there.
 
 ### Workspace prerequisites
 

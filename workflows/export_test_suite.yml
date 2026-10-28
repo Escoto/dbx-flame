@@ -1,0 +1,13 @@
+# Runs every export platform test: Silver and Gold → delivered files.
+#
+# The tasks carry no depends_on, so they run in parallel. Safe because each
+# test cleans only its own schema, preparation folder and destination.
+
+resources:
+  jobs:
+    export_test_suite:
+      name: export_test_suite
+      tasks:
+        - task_key: export_csv_schema_test
+          run_job_task:
+            job_id: ${resources.jobs.export_csv_schema_test.id}

@@ -138,6 +138,10 @@ databricks bundle deploy -t dev -p <profile>
 databricks bundle run integration_test_suite -t dev -p <profile>
 ```
 
+`integration_test_suite` runs every platform test. To run only the ones a change can reach,
+run `data_processing_test_suite` or `export_test_suite` instead (see
+[05_testing.md](05_testing.md#2-platform-tests-databricks)).
+
 The suite runs every test job in parallel. To trace a failure, see
 [Debugging a failed run](05_testing.md#debugging-a-failed-run).
 
