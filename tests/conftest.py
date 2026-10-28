@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import uuid as _uuid
 
@@ -12,14 +13,17 @@ from pyspark.sql import SparkSession
 
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+shutil.rmtree("/tmp/dbx_flame_tests", ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
 def spark() -> SparkSession:
     """Create a local SparkSession with Delta Lake for testing."""
     builder = (
-        SparkSession.builder.master("local[*]")
+        SparkSession.builder.master("local[4]")
         .appName("dbx_flame_tests")
+        .config("spark.driver.memory", "4g")
+        .config("spark.ui.enabled", "false")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config(
             "spark.sql.catalog.spark_catalog",

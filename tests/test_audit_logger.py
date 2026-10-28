@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from importlib.metadata import version
+
 from pyspark.sql.types import (
     IntegerType,
     StringType,
@@ -69,6 +71,7 @@ def test_schema_matches_contract(spark, audit_db):
             StructField("__workflow_run_id", StringType(), True),
             StructField("__task_key", StringType(), True),
             StructField("__task_run_id", StringType(), True),
+            StructField("__flame_version", StringType(), True),
             StructField("time_stamp", TimestampType(), True),
             StructField("type", StringType(), True),
             StructField("catalog", StringType(), True),
@@ -245,6 +248,17 @@ def test_identity_columns_populated(spark, audit_db):
     assert row["__workflow_run_id"] == "wfrun-9"
     assert row["__task_key"] == "bronze_to_silver"
     assert row["__task_run_id"] == "taskrun-9"
+
+
+def test_every_row_records_the_installed_flame_version(spark, audit_db):
+    """An auditor connects a run to the code that ran through the wheel's own version."""
+    logger = _make_logger(spark, audit_db)
+    logger.info("version_test", "src", "desc")
+    logger.kpi(Kpi.ROWS_APPENDED, 1)
+    logger.flush()
+
+    versions = {r["__flame_version"] for r in spark.table(f"{audit_db}.logs").collect()}
+    assert versions == {version("dbx-flame")}
 
 
 def test_every_entry_is_echoed_to_the_console(spark, audit_db, capsys):

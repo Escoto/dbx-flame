@@ -22,15 +22,18 @@ from dbx_flame.output.mechanics import (
     END_DATE,
     EXPIRED,
     LIVE,
+    StepMode,
     as_timestamp,
     key_condition,
     log_rows_written,
     merge_schema,
     LAST_MODIFIED,
     open_history,
+    record_step,
     require_creatable,
     require_no_new_columns,
     stamp_written,
+    step_start,
     written,
 )
 from dbx_flame.output.table_config import DeltaTableConfig
@@ -67,7 +70,10 @@ class Scd2Writer:
     )
 
     def write(self, df: DataFrame, ctx: Context) -> None:
+        before = step_start(ctx)
         merge_history(df, ctx)
+        # Here rather than in merge_history: COMPLETE_DELTA's step also takes its deletes.
+        record_step(ctx, before, df, StepMode.MERGE, _SOURCE)
 
 
 def event_time(ctx: Context, alias: str | None = None) -> Column:

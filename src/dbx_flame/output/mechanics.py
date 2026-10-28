@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from enum import StrEnum, unique
 from functools import reduce
 from operator import and_
 from typing import TYPE_CHECKING
@@ -12,6 +13,7 @@ from pyspark.sql import Window
 from pyspark.sql import functions as F
 
 from dbx_flame.context.config import EventTimeConfig, SchemaEvolution
+from dbx_flame.pipelines.enrichment import SOURCE
 from dbx_flame.policies.platform import PlatformPolicy, violate
 
 if TYPE_CHECKING:
@@ -42,6 +44,30 @@ LIVE = "N"
 _DEDUP_RANK = "_dedup_rank"
 
 _SOURCE = "mechanics"
+
+# The audit event each step leaves; the documented state and rollback queries read it.
+STEP_PROMOTED = "step_promoted"
+
+
+@unique
+class StepMode(StrEnum):
+    """How a step changes the target. The state on a date starts at the latest REPLACE."""
+
+    APPEND = "APPEND"
+    REPLACE = "REPLACE"
+    MERGE = "MERGE"
+
+
+@unique
+class Feed(StrEnum):
+    UPDATES = "updates"
+    DELETES = "deletes"
+
+
+# The commit metrics that count rows a commit changed. A MERGE rewrites every file a match
+# sits in, so its numOutputRows also counts rows it only copied; its own counts don't.
+_MERGE_CHANGES = ("numTargetRowsInserted", "numTargetRowsUpdated", "numTargetRowsDeleted")
+_OTHER_CHANGES = ("numOutputRows", "numUpdatedRows", "numDeletedRows")
 
 
 # The modes under which a batch can arrive carrying a column the target lacks.
@@ -310,3 +336,76 @@ def table_version(spark: SparkSession, table: str) -> int | None:
 def _last_commit(spark: SparkSession, table: str) -> Row | None:
     history = spark.sql(f"DESCRIBE HISTORY {table} LIMIT 1").collect()
     return history[0] if history else None
+
+
+def step_start(ctx: Context) -> int:
+    """The target's version before a step; -1 when the step will create the table."""
+    version = table_version(ctx.spark, ctx.target_table)
+    return -1 if version is None else version
+
+
+def record_step(
+    ctx: Context,
+    before: int,
+    rows: DataFrame,
+    mode: StepMode,
+    writer: str,
+    deletes: DataFrame | None = None,
+) -> None:
+    """Log one step_promoted record per source the step applied, then flush.
+
+    A step is every commit since `before`, and the records carry the version after
+    them. A step that changed no rows is not a step: a skipped write or a rerun with
+    nothing new leaves no record. The flush is immediate, so a driver that dies later
+    cannot lose a step that committed. Deletes are always merged.
+    """
+    after = table_version(ctx.spark, ctx.target_table)
+    if after is None or not _rows_changed(ctx, before, after):
+        return
+
+    _log_sources(ctx, rows, mode, Feed.UPDATES, writer, after)
+    if deletes is not None:
+        _log_sources(ctx, deletes, StepMode.MERGE, Feed.DELETES, writer, after)
+    ctx.logger.flush()
+
+
+def _rows_changed(ctx: Context, before: int, after: int) -> bool:
+    if after <= before:
+        return False
+    commits = ctx.spark.sql(
+        f"DESCRIBE HISTORY {ctx.target_table} LIMIT {after - before}"
+    ).collect()
+    return any(_changed(commit) for commit in commits)
+
+
+def _changed(commit: Row) -> bool:
+    metrics = commit["operationMetrics"] or {}
+    names = _MERGE_CHANGES if commit["operation"] == "MERGE" else _OTHER_CHANGES
+    return any(int(metrics.get(name) or 0) for name in names)
+
+
+def _log_sources(
+    ctx: Context, rows: DataFrame, mode: StepMode, feed: Feed, writer: str, version: int
+) -> None:
+    assert SOURCE in rows.columns  # guaranteed by provenance, stamped where data enters
+    verb = ctx.config.output.verb.value
+    sources = sorted(row[0] for row in rows.select(SOURCE).distinct().collect())
+    for source in sources:
+        ctx.logger.info(
+            name=STEP_PROMOTED,
+            source=writer,
+            total=version,
+            description=(
+                f"{verb} {mode} ({feed}): {source} promoted to {ctx.target_table} "
+                f"(version {version})"
+            ),
+            metadata=json.dumps(
+                {
+                    "verb": verb,
+                    "mode": mode.value,
+                    "feed": feed.value,
+                    "source": source,
+                    "version": version,
+                }
+            ),
+        )
