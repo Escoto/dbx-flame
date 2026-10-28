@@ -183,7 +183,7 @@ WITH steps AS (
     get_json_object(metadata, '$.feed') AS feed,
     get_json_object(metadata, '$.source') AS source,
     time_stamp AS processed_dt
-  FROM monitoring_dev.audit.logs
+  FROM monitoring_dev.audit.flame_logs
   WHERE name = 'step_promoted'
     AND catalog = :catalog AND `schema` = :schema AND `table` = :table
     AND time_stamp <= :as_of
@@ -214,7 +214,7 @@ The last healthy version before a source was promoted is the previous step's ver
 WITH audit AS (
   SELECT __task_run_id, name, total,
          get_json_object(metadata, '$.source') AS source
-  FROM monitoring_dev.audit.logs
+  FROM monitoring_dev.audit.flame_logs
   WHERE catalog = :catalog AND `schema` = :schema AND `table` = :table
     AND name IN ('promotion_start', 'step_promoted')
 ),

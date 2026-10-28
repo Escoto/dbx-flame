@@ -36,7 +36,7 @@ dbx_flame/
 │   │   │   └── complete_delta.py    #   snapshot replay orchestration on top of scd2.py
 │   │   └── table_config.py          #   DeltaTableConfig: table-level settings (statistics columns)
 │   ├── observability/
-│   │   ├── audit_logger.py          #   buffered logger → `monitoring_{env}`.audit.logs
+│   │   ├── audit_logger.py          #   buffered logger → `monitoring_{env}`.audit.flame_logs
 │   │   ├── kpi.py                   #   KPI event helpers
 │   │   └── tagging.py               #   Unity Catalog table tagging
 │   ├── mechanics/
@@ -175,7 +175,7 @@ class Writer(Protocol):
 
 ## 4. Observability
 
-- `AuditLogger` writes the audit contract (`` `monitoring_{env}`.`audit`.`logs` ``, fixed schema, partitioned, auto-created) and **buffers** entries, flushing per stage transition and on any failure so a crash cannot lose the trail. Every entry is also printed to the driver log as it is logged, so a run whose flush never lands still leaves its trail there. Each run records `promotion_start` with the target's Delta version before any data moves: the version to restore when a failure is beyond what a retry repairs. API: `info/warning/error(name, source, description, total)`, plus `kpi(name, total, description)` for the named KPI events dashboards query.
+- `AuditLogger` writes the audit contract (`` `monitoring_{env}`.`audit`.`flame_logs` ``, fixed schema, partitioned, auto-created) and **buffers** entries, flushing per stage transition and on any failure so a crash cannot lose the trail. Every entry is also printed to the driver log as it is logged, so a run whose flush never lands still leaves its trail there. Each run records `promotion_start` with the target's Delta version before any data moves: the version to restore when a failure is beyond what a retry repairs. API: `info/warning/error(name, source, description, total)`, plus `kpi(name, total, description)` for the named KPI events dashboards query.
 - Errors always **raise**; logging never swallows control flow.
 
 ## 5. Error handling model

@@ -25,7 +25,7 @@ RUN = RunIdentity(
 )
 
 
-def _make_logger(spark, audit_db, table_suffix="logs"):
+def _make_logger(spark, audit_db, table_suffix="flame_logs"):
     return AuditLogger(
         spark=spark,
         env="dev_01",
@@ -41,7 +41,7 @@ def test_buffer_accumulates_without_writing(spark, audit_db):
     logger.info("step_b", "source_b", "desc_b")
     logger.info("step_c", "source_c", "desc_c")
 
-    rows = spark.table(f"{audit_db}.logs").count()
+    rows = spark.table(f"{audit_db}.flame_logs").count()
     assert rows == 0
 
 
@@ -52,7 +52,7 @@ def test_flush_writes_all_entries(spark, audit_db):
     logger.error("e_step", "src", "error entry")
     logger.flush()
 
-    df = spark.table(f"{audit_db}.logs")
+    df = spark.table(f"{audit_db}.flame_logs")
     assert df.count() == 3
 
     types = sorted(r["type"] for r in df.select("type").collect())
@@ -85,7 +85,7 @@ def test_schema_matches_contract(spark, audit_db):
         ]
     )
 
-    actual = spark.table(f"{audit_db}.logs").schema
+    actual = spark.table(f"{audit_db}.flame_logs").schema
     expected_names = [f.name for f in expected.fields]
     actual_names = [f.name for f in actual.fields]
     assert actual_names == expected_names
@@ -115,7 +115,7 @@ def test_kpi_convention(spark, audit_db):
     logger.kpi(Kpi.ROWS_APPENDED, 42)
     logger.flush()
 
-    row = spark.table(f"{audit_db}.logs").collect()[0]
+    row = spark.table(f"{audit_db}.flame_logs").collect()[0]
     assert row["source"] == "KPI"
     assert row["total"] == 42
     assert row["name"] == "rows_appended"
@@ -127,7 +127,7 @@ def test_info_level(spark, audit_db):
     logger.info("test_name", "test_src", "test_desc")
     logger.flush()
 
-    row = spark.table(f"{audit_db}.logs").collect()[0]
+    row = spark.table(f"{audit_db}.flame_logs").collect()[0]
     assert row["type"] == "INFO"
 
 
@@ -136,7 +136,7 @@ def test_warning_level(spark, audit_db):
     logger.warning("test_name", "test_src", "test_desc")
     logger.flush()
 
-    row = spark.table(f"{audit_db}.logs").collect()[0]
+    row = spark.table(f"{audit_db}.flame_logs").collect()[0]
     assert row["type"] == "WARNING"
 
 
@@ -145,7 +145,7 @@ def test_error_level(spark, audit_db):
     logger.error("test_name", "test_src", "test_desc")
     logger.flush()
 
-    row = spark.table(f"{audit_db}.logs").collect()[0]
+    row = spark.table(f"{audit_db}.flame_logs").collect()[0]
     assert row["type"] == "ERROR"
 
 
@@ -155,19 +155,19 @@ def test_multiple_flushes(spark, audit_db):
     logger.info("second", "src", "desc")
     logger.flush()
 
-    assert spark.table(f"{audit_db}.logs").count() == 2
+    assert spark.table(f"{audit_db}.flame_logs").count() == 2
 
     logger.warning("third", "src", "desc")
     logger.flush()
 
-    assert spark.table(f"{audit_db}.logs").count() == 3
+    assert spark.table(f"{audit_db}.flame_logs").count() == 3
 
 
 def test_flush_empty_buffer_noop(spark, audit_db):
     logger = _make_logger(spark, audit_db)
     logger.flush()
 
-    assert spark.table(f"{audit_db}.logs").count() == 0
+    assert spark.table(f"{audit_db}.flame_logs").count() == 0
 
 
 def test_parsed_target_table_columns(spark, audit_db):
@@ -175,7 +175,7 @@ def test_parsed_target_table_columns(spark, audit_db):
     logger.info("parse_test", "src", "desc")
     logger.flush()
 
-    row = spark.table(f"{audit_db}.logs").collect()[0]
+    row = spark.table(f"{audit_db}.flame_logs").collect()[0]
     assert row["catalog"] == "cro_dev_01"
     assert row["schema"] == "silver_cro"
     assert row["table"] == "SUBJECTS"
@@ -204,7 +204,7 @@ def test_metadata_field(spark, audit_db):
     logger.error("ingest_failure", "CSVSource", "File parse error", metadata=meta)
     logger.flush()
 
-    row = spark.table(f"{audit_db}.logs").collect()[0]
+    row = spark.table(f"{audit_db}.flame_logs").collect()[0]
     assert row["metadata"] is not None
     parsed = json.loads(row["metadata"])
     assert parsed["file"] == "/vol/agents/bad.csv"
@@ -215,7 +215,7 @@ def test_metadata_null_by_default(spark, audit_db):
     logger.info("test", "src", "no metadata")
     logger.flush()
 
-    row = spark.table(f"{audit_db}.logs").collect()[0]
+    row = spark.table(f"{audit_db}.flame_logs").collect()[0]
     assert row["metadata"] is None
 
 
@@ -243,7 +243,7 @@ def test_identity_columns_populated(spark, audit_db):
     logger.info("identity_test", "src", "desc")
     logger.flush()
 
-    row = spark.table(f"{audit_db}.logs").collect()[0]
+    row = spark.table(f"{audit_db}.flame_logs").collect()[0]
     assert row["__workflow_id"] == "wf-9"
     assert row["__workflow_run_id"] == "wfrun-9"
     assert row["__task_key"] == "bronze_to_silver"
@@ -257,7 +257,7 @@ def test_every_row_records_the_installed_flame_version(spark, audit_db):
     logger.kpi(Kpi.ROWS_APPENDED, 1)
     logger.flush()
 
-    versions = {r["__flame_version"] for r in spark.table(f"{audit_db}.logs").collect()}
+    versions = {r["__flame_version"] for r in spark.table(f"{audit_db}.flame_logs").collect()}
     assert versions == {version("dbx-flame")}
 
 

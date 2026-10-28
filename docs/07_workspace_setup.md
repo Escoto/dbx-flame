@@ -22,7 +22,7 @@ env: dev
 ```
 
 reads and writes in catalog `mdm_dev` (`{catalog}_{env}`), and logs to
-`monitoring_dev.audit.logs` (`monitoring_{env}`).
+`monitoring_dev.audit.flame_logs` (`monitoring_{env}`).
 
 - **`monitoring` is the only fixed name.** Every environment needs a `monitoring_{env}`
   catalog with an `audit` schema. Name your data catalogs (`mdm`, `sales`, `dbx_flame`, ...)
@@ -76,7 +76,7 @@ CREATE CATALOG IF NOT EXISTS monitoring_dev;
 CREATE SCHEMA  IF NOT EXISTS monitoring_dev.audit;
 ```
 
-Don't create `logs`: the first run creates it with the right columns.
+Don't create `flame_logs`: the first run creates it with the right columns.
 
 ## 3 · Create the data catalog, schema and volume
 
@@ -151,7 +151,7 @@ The suite runs every test job in parallel. To trace a failure, see
 SHOW TABLES IN dbx_flame_dev.functional_testing;   -- the *_BRONZE_1 / *_SILVER_1 tables
 
 SELECT type, name, catalog, schema, table, description
-FROM monitoring_dev.audit.logs
+FROM monitoring_dev.audit.flame_logs
 ORDER BY time_stamp DESC;
 ```
 

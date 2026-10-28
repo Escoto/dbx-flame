@@ -1,4 +1,4 @@
-"""Buffered audit logger — writes to monitoring_{env}.audit.logs."""
+"""Buffered audit logger — writes to monitoring_{env}.audit.flame_logs."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ _COLUMN_COMMENTS: dict[str, str] = {
 class AuditLogger:
     """Buffered logger that flushes per stage transition and on failure.
 
-    Table contract: monitoring_{env}.audit.logs
+    Table contract: monitoring_{env}.audit.flame_logs
     Schema: __uuid, __workflow_id, __workflow_run_id, __task_key, __task_run_id,
             __flame_version, time_stamp, type, catalog, schema, table, name, source,
             total, description, metadata
@@ -98,7 +98,7 @@ class AuditLogger:
         self._audit_table_name = (
             _audit_table_override
             if _audit_table_override
-            else f"`monitoring_{env}`.`audit`.`logs`"
+            else f"`monitoring_{env}`.`audit`.`flame_logs`"
         )
 
         self._ensure_table()

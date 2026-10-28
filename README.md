@@ -113,7 +113,7 @@ databricks bundle deploy
 ## Traceability
 
 Every run that passes config validation writes an audit trail to your own catalog
-(`monitoring_{env}.audit.logs`), not to vendor telemetry. Each row names the job, run and task
+(`monitoring_{env}.audit.flame_logs`), not to vendor telemetry. Each row names the job, run and task
 that produced it. The audit write comes first, so a run that can't log fails before touching
 any data. Schema: [00_overview.md](docs/00_overview.md#glossary).
 
