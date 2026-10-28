@@ -100,7 +100,7 @@ runs inside the closure.
 
 ## 4. Audit log shape
 
-Policy results reuse the audit contract (`` `monitoring_{env}`.`audit`.`logs` ``):
+Policy results reuse the audit contract (`` `monitoring_{env}`.`audit`.`flame_logs` ``):
 
 | Field | Value |
 |---|---|

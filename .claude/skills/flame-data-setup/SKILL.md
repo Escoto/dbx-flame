@@ -212,4 +212,4 @@ Give the user:
 4. **What to agree with the provider**: the file-name timestamp format, export order, no
    blank keys or event times, and how deletes are sent.
 5. **How to test it**: deploy, run with a few sample files, then check the Silver rows
-   and the audit table (`monitoring_{env}.audit.logs`).
+   and the audit table (`monitoring_{env}.audit.flame_logs`).

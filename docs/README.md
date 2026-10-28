@@ -16,7 +16,7 @@ Start before any data is read.
 - **`env` is the bundle target.** Workflows pass `env: ${bundle.target}`, so deploying with
   `-t prod` means `_prod` everywhere.
 - **`monitoring` is the only fixed name.** Every environment logs to
-  `monitoring_{env}.audit.logs`. Name your data catalogs however you like.
+  `monitoring_{env}.audit.flame_logs`. Name your data catalogs however you like.
 - **One catalog per task.** A task writes, and keeps its progress, in its own
   `{catalog}_{env}`. Only a table source may live in another catalog (`source.catalog`).
 - **Table names are UPPERCASE**, validated at Start. Keep catalog, schema and volume names
@@ -29,7 +29,7 @@ The framework creates tables only. It never creates a catalog, schema or volume.
 | What | Where | Created by |
 |---|---|---|
 | Audit catalog and schema | `monitoring_{env}.audit`, once per environment | You |
-| Audit table | `monitoring_{env}.audit.logs` | The framework, on the first run. Don't create it |
+| Audit table | `monitoring_{env}.audit.flame_logs` | The framework, on the first run. Don't create it |
 | Metadata volume | Any volume in each target catalog `{catalog}_{env}`, passed as `metadata_path`. Every ingest task needs one; the tasks of a catalog can share it | You. The framework keeps one folder per table under it: checkpoints and schema hints |
 | Output schemas | One per `output.schema_name` | You. Its tables are created on first write |
 | Export volume | A folder inside any volume of the task's catalog, passed as `export.preparation_path`. Export tasks only | You |

@@ -74,7 +74,7 @@ After the second run:
 |---|---|
 | `edc_dev.bronze.SITE` | Both exports, 5 rows (3 + 2). Each row has `__SOURCE` (its file) and `__EXPORT_DATE` (the time in the file name). |
 | `edc_dev.silver.SITE` | Only the export of 2026-11-02, 2 rows. `S003` is not in Silver. |
-| `monitoring_dev.audit.logs` | One or more rows for each task run. |
+| `monitoring_dev.audit.flame_logs` | One or more rows for each task run. |
 
 ```sql
 SELECT __EXPORT_DATE, COUNT(*) AS ROW_COUNT FROM edc_dev.bronze.SITE GROUP BY 1 ORDER BY 1 DESC;

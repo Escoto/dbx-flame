@@ -148,7 +148,7 @@ def expect_audited(task_key: str, algorithm: str, expected: dict) -> None:
 
     spark = SparkSession.builder.getOrCreate()
     rows = (
-        spark.table(f"`monitoring_{sys.argv[3]}`.`audit`.`logs`")
+        spark.table(f"`monitoring_{sys.argv[3]}`.`audit`.`flame_logs`")
         .where(
             (F.col("__workflow_run_id") == sys.argv[4])
             & (F.col("__task_key") == task_key)
