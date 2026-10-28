@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from importlib.metadata import version
 from typing import TYPE_CHECKING
 
 from pyspark.sql.types import (
@@ -20,12 +21,17 @@ if TYPE_CHECKING:
     from dbx_flame.context.context import RunIdentity
     from dbx_flame.observability.kpi import Kpi
 
+# From the installed wheel, not a constant in the code: the version that ran is the one
+# an auditor needs, and a constant can drift from the wheel it ships in.
+_FLAME_VERSION = version("dbx-flame")
+
 _COLUMN_COMMENTS: dict[str, str] = {
     "__uuid": "Unique identifier for each log entry",
     "__workflow_id": "Databricks job (workflow) ID - stable across runs",
     "__workflow_run_id": "Databricks job run ID - one per workflow execution",
     "__task_key": "Task key within the workflow - stable across runs",
     "__task_run_id": "Databricks task run ID - one per task execution",
+    "__flame_version": "dbx-flame version of the wheel that wrote the entry",
     "time_stamp": "Timestamp when the log entry was created",
     "type": "Log level: INFO, WARNING, or ERROR",
     "catalog": "Target catalog name parsed from the pipeline target table",
@@ -44,8 +50,8 @@ class AuditLogger:
 
     Table contract: monitoring_{env}.audit.logs
     Schema: __uuid, __workflow_id, __workflow_run_id, __task_key, __task_run_id,
-            time_stamp, type, catalog, schema, table, name, source, total,
-            description, metadata
+            __flame_version, time_stamp, type, catalog, schema, table, name, source,
+            total, description, metadata
     Partitioned by: type, name
     """
 
@@ -56,6 +62,7 @@ class AuditLogger:
             StructField("__workflow_run_id", StringType(), False),
             StructField("__task_key", StringType(), False),
             StructField("__task_run_id", StringType(), False),
+            StructField("__flame_version", StringType(), False),
             StructField("time_stamp", TimestampType(), False),
             StructField("type", StringType(), False),
             StructField("catalog", StringType(), True),
@@ -135,6 +142,7 @@ class AuditLogger:
                 self._run.workflow_run_id,
                 self._run.task_key,
                 self._run.task_run_id,
+                _FLAME_VERSION,
                 now,
                 level,
                 self._catalog,
