@@ -10,14 +10,17 @@ from dbx_flame.context.config import IncrementStrategy, Verb
 from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.mechanics import (
+    StepMode,
     as_timestamp,
     key_condition,
     log_rows_written,
     merge_schema,
+    record_step,
     require_no_new_columns,
     schema_auto_merge,
     require_creatable,
     stamp_written,
+    step_start,
 )
 from dbx_flame.output.table_config import DeltaTableConfig
 
@@ -49,6 +52,13 @@ class UpsertWriter:
         require_creatable(df, ctx)
         prepared = stamp_written(df, ctx)
 
+        before = step_start(ctx)
+        self._merge(prepared, ctx)
+        # Every source handed to the merge, including rows it did not take: replaying
+        # the same inputs gives the same state.
+        record_step(ctx, before, prepared, StepMode.MERGE, _SOURCE)
+
+    def _merge(self, prepared: DataFrame, ctx: Context) -> None:
         if not ctx.spark.catalog.tableExists(ctx.target_table):
             self._create(prepared, ctx)
             return

@@ -11,11 +11,14 @@ from dbx_flame.observability.kpi import Kpi
 from dbx_flame.output.base import Requirements
 from dbx_flame.output.mechanics import (
     EXPORT_DATE,
+    StepMode,
     latest_export,
     log_rows_written,
     merge_schema,
+    record_step,
     require_creatable,
     stamp_written,
+    step_start,
 )
 from dbx_flame.output.table_config import DeltaTableConfig
 
@@ -70,6 +73,7 @@ class FullWriter:
                 return
             df = df.filter(F.col(EXPORT_DATE) == F.lit(latest))
 
+        before = step_start(ctx)
         stamped = stamp_written(df, ctx)
         (
             stamped.write.format("delta")
@@ -79,6 +83,8 @@ class FullWriter:
             .saveAsTable(ctx.target_table)
         )
         log_rows_written(ctx, event=Kpi.ROWS_OVERWRITTEN, source=_SOURCE)
+        # Only the newest export: the ones it superseded never reached the target.
+        record_step(ctx, before, df, StepMode.REPLACE, _SOURCE)
 
 
 def _applied_export(ctx: Context) -> datetime | None:

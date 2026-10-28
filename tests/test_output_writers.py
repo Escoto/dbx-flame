@@ -78,8 +78,9 @@ def _rows(spark, database):
     return {(row["ID"], row["NAME"]) for row in spark.table(f"`{database}`.`TARGET`").collect()}
 
 
-def _people(spark, rows):
-    return spark.createDataFrame(rows, PEOPLE)
+def _people(spark, rows, schema=PEOPLE, source="FILE:/in/people.csv"):
+    """People rows as a writer receives them: provenance is stamped where data enters."""
+    return spark.createDataFrame(rows, schema).withColumn("__SOURCE", F.lit(source))
 
 
 FIRST_RUN = datetime(2030, 1, 1)
@@ -192,8 +193,12 @@ EXPORTS = f"{PEOPLE}, __EXPORT_DATE timestamp"
 
 
 def _exports(spark, rows):
-    """People rows tagged with the day of the export they arrived in."""
-    return spark.createDataFrame([(*row[:3], datetime(2024, 1, row[3])) for row in rows], EXPORTS)
+    """People rows tagged with the day of the export they arrived in, and its file."""
+    stamped = [(*row[:3], datetime(2024, 1, row[3])) for row in rows]
+    return spark.createDataFrame(stamped, EXPORTS).withColumn(
+        "__SOURCE",
+        F.concat(F.lit("FILE:/in/people_"), F.dayofmonth("__EXPORT_DATE"), F.lit(".csv")),
+    )
 
 
 def test_full_keeps_only_the_newest_export_of_a_backlog(spark, database):
@@ -371,7 +376,7 @@ def test_upsert_adds_a_new_column_when_evolution_is_on(spark, database):
     ctx = _upsert_ctx(spark, database, schema_evolution=SchemaEvolution.ADD_NEW_COLUMNS)
     UpsertWriter().write(_people(spark, [("1", "alice", "2024-01-01")]), ctx)
 
-    wider = spark.createDataFrame([("1", "alice", "2024-01-02", "al")], WIDER)
+    wider = _people(spark, [("1", "alice", "2024-01-02", "al")], WIDER)
     UpsertWriter().write(wider, ctx)
 
     assert "NICKNAME" in spark.table(f"`{database}`.`TARGET`").columns
@@ -382,7 +387,7 @@ def test_upsert_refuses_a_new_column_when_evolution_is_off(spark, database):
     ctx = _upsert_ctx(spark, database, schema_evolution=SchemaEvolution.FAIL_ON_NEW_COLUMNS)
     UpsertWriter().write(_people(spark, [("1", "alice", "2024-01-01")]), ctx)
 
-    wider = spark.createDataFrame([("1", "alice", "2024-01-02", "al")], WIDER)
+    wider = _people(spark, [("1", "alice", "2024-01-02", "al")], WIDER)
     with pytest.raises(PlatformPolicyViolation, match="NICKNAME"):
         UpsertWriter().write(wider, ctx)
 

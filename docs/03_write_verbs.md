@@ -154,4 +154,89 @@ A second Delta table (`source.deletes_table`) carrying delete records, with its 
 
 No physical deletes, ever — history is preserved.
 
+## 8. Step records: the recipe for a table's state
+
+Every verb logs each step it commits to the target as `step_promoted` audit records, one per source (`__SOURCE`) the step applied. Read in order, they are the recipe for the target's state on any date: the latest `REPLACE` step at or before that date, then every step after it. The framework delivers the recipe; replaying it is a data engineering task.
+
+| Verb | One step | `mode` |
+|---|---|---|
+| APPEND | one batch or micro-batch | `APPEND` |
+| FULL | one overwrite with the batch's newest export | `REPLACE` |
+| UPSERT, SCD2 | one batch or micro-batch | `MERGE` |
+| COMPLETE_DELTA | one snapshot: its updates, then its deletes | updates: `REPLACE` under `snapshot_scope: full`, else `MERGE`; deletes: `MERGE` |
+
+- **The record**: `name` = `step_promoted`, `total` = the target's Delta version after the step, `time_stamp` = when it was processed, `metadata` = `{"verb", "mode", "feed", "source", "version"}`. `feed` is `updates` or `deletes`; only COMPLETE_DELTA has a deletes feed.
+- **`version` groups a step.** Records with the same version are one step and are replayed together: SCD2 and UPSERT deduplicate per batch, so a step's sources applied one at a time give a different result. A step lists every source handed to the write, including one whose rows changed nothing.
+- **No change, no step.** A skipped write (FULL with empty or older input), a rerun with nothing new, and an export a newer one superseded leave no record.
+- **Written as soon as the step commits**, not at the end of the run. A run that fails partway leaves records for the steps it finished and none for the rest; a COMPLETE_DELTA snapshot whose deletes never ran is half-applied and has none.
+- **Code and config**: each record carries `__flame_version`, and its `__task_run_id` leads to the run's `pipeline_start` record, whose metadata holds the task's parameters.
+- **State means current rows.** The recipe rebuilds the rows current on that date, not the history before the `REPLACE`. A target with no `REPLACE` step lists every step since its first, so the list can be long.
+
+### The state on a date
+
+```sql
+-- The steps that built a target as it stood at :as_of, in the order to apply them.
+WITH steps AS (
+  SELECT
+    CAST(get_json_object(metadata, '$.version') AS BIGINT) AS version,
+    get_json_object(metadata, '$.mode') AS mode,
+    get_json_object(metadata, '$.feed') AS feed,
+    get_json_object(metadata, '$.source') AS source,
+    time_stamp AS processed_dt
+  FROM monitoring_dev.audit.logs
+  WHERE name = 'step_promoted'
+    AND catalog = :catalog AND `schema` = :schema AND `table` = :table
+    AND time_stamp <= :as_of
+),
+start AS (
+  SELECT coalesce(max(version), -1) AS version FROM steps WHERE mode = 'REPLACE'
+)
+SELECT steps.version, mode, feed, source, processed_dt
+FROM steps, start
+WHERE steps.version >= start.version
+ORDER BY steps.version, feed DESC, source
+```
+
+| version | mode | feed | source | processed_dt |
+|---|---|---|---|---|
+| 42 | REPLACE | updates | FILE:/Volumes/.../SITE_2025_SEPT_01.csv | 2025-09-03 05:00:01 |
+| 45 | MERGE | updates | FILE:/Volumes/.../SITE_2025_SEPT_25.csv | 2025-09-26 05:00:01 |
+| 48 | MERGE | updates | FILE:/Volumes/.../SITE_2025_OCT_10.csv | 2025-10-11 05:00:01 |
+
+A table that was dropped and recreated starts its versions again: add `AND time_stamp >= <its creation>`.
+
+### Rolling back a source
+
+The last healthy version before a source was promoted is the previous step's version in the same run, or the run's `promotion_start` version when it was the run's first step. Versions between two steps are half-applied and are never a restore target.
+
+```sql
+-- The version to restore so the target stands as it did before :source.
+WITH audit AS (
+  SELECT __task_run_id, name, total,
+         get_json_object(metadata, '$.source') AS source
+  FROM monitoring_dev.audit.logs
+  WHERE catalog = :catalog AND `schema` = :schema AND `table` = :table
+    AND name IN ('promotion_start', 'step_promoted')
+),
+step AS (
+  SELECT __task_run_id, total AS version FROM audit
+  WHERE name = 'step_promoted' AND source = :source
+  ORDER BY version
+  LIMIT 1
+)
+SELECT coalesce(
+  (SELECT max(a.total) FROM audit a, step s
+   WHERE a.name = 'step_promoted' AND a.__task_run_id = s.__task_run_id
+     AND a.total < s.version),
+  (SELECT a.total FROM audit a, step s
+   WHERE a.name = 'promotion_start' AND a.__task_run_id = s.__task_run_id)
+) AS restore_version
+```
+
+Restore with `RESTORE TABLE <target> TO VERSION AS OF <restore_version>`. A NULL means the run created the table: drop it instead. What a restore does not undo:
+
+- **The next run, by increment strategy.** `watermark` and `delta_read` follow the target, so the next run reads every later step again, the bad source included; fix or remove it in Bronze first. `full_read` reads the source table whole again. `checkpoint` has already moved past those steps: the next run does not read them again, and they stay missing until the checkpoint is reset.
+- **Bronze** still holds the source's rows.
+- **Downstream tables** keep the data they already took from the target.
+
 Which verb to choose for a source, and with which increment strategy: [08_usage.md](08_usage.md).

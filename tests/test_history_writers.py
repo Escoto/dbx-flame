@@ -122,8 +122,9 @@ def _at(day: int, hour: int = 0) -> datetime:
     return datetime(2026, 1, day, hour)
 
 
-def _subjects(spark, rows):
-    return spark.createDataFrame(rows, SUBJECTS)
+def _subjects(spark, rows, source="FILE:/Volumes/in/subjects/subjects.csv"):
+    """Subjects as a writer receives them: provenance is stamped where data enters."""
+    return spark.createDataFrame(rows, SUBJECTS).withColumn("__SOURCE", F.lit(source))
 
 
 FIRST_RUN = datetime(2030, 1, 1)

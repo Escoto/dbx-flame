@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import uuid as _uuid
 
@@ -12,6 +13,7 @@ from pyspark.sql import SparkSession
 
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+shutil.rmtree("/tmp/dbx_flame_tests", ignore_errors=True)
 
 
 @pytest.fixture(scope="session")

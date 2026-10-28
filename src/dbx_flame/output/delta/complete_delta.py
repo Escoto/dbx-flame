@@ -26,9 +26,12 @@ from dbx_flame.output.mechanics import (
     EXPIRED,
     EXPORT_DATE,
     LAST_MODIFIED,
+    StepMode,
     as_timestamp,
+    record_step,
     require_valid_times,
     key_condition,
+    step_start,
     written,
 )
 from dbx_flame.pipelines.table_source import TableSource
@@ -103,10 +106,20 @@ class CompleteDeltaWriter:
         for snapshot in snapshots:
             runner.run(_at(df, snapshot), ctx, batch=f"snapshot {snapshot}")
 
+        # A full export supersedes what the target holds, so the state starts over there.
+        full = ctx.config.output.snapshot_scope == SnapshotScope.FULL
+        mode = StepMode.REPLACE if full else StepMode.MERGE
+
+        # Each snapshot is one step, recorded after its deletes, so a run that dies
+        # between the two leaves no record for a half-applied snapshot.
         for snapshot in snapshots:
-            merge_history(_at(df, snapshot), ctx, snapshot)
-            if deletes is not None:
-                _apply_deletes(_at(deletes, snapshot), ctx)
+            before = step_start(ctx)
+            updates = _at(df, snapshot)
+            retired = _at(deletes, snapshot) if deletes is not None else None
+            merge_history(updates, ctx, snapshot)
+            if retired is not None:
+                _apply_deletes(retired, ctx)
+            record_step(ctx, before, updates, mode, _SOURCE, deletes=retired)
 
 
 def _ordered_snapshots(updates: DataFrame, deletes: Optional[DataFrame]) -> list[datetime]:
