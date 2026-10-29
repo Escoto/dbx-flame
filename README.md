@@ -52,6 +52,12 @@ output.event_time.column: __EXPORT_DATE
 Both tasks are entries in a workflow YAML that the bundle deploys. All verbs:
 [03_write_verbs.md](docs/03_write_verbs.md).
 
+The possible data flows. Each number is one task. Shortcuts 4 and 5 skip Bronze, so no
+original record is kept. Which combinations each flow accepts:
+[docs/examples](docs/examples/README.md).
+
+![Data flows from Inbound files and external tables to Bronze, Silver and Gold](docs/examples/data_flows.png)
+
 ## What Every Table Gets
 
 - **Checked configuration.** Start checks each task before it reads data. An invalid setting,
