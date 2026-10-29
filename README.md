@@ -70,11 +70,9 @@ Both tasks are entries in a workflow YAML that the bundle deploys. All verbs:
 - **One set of write verbs.** `APPEND`, `FULL`, `UPSERT`, `SCD2` and `COMPLETE_DELTA` work the
   same for `Inbound → Bronze` and `Bronze → Silver`.
 
-## Recommended Combinations
+## Recommended Usage
 
-The source, increment strategy (`source.increment_strategy`) and verb for each step. Other
-combinations, and the traps that a valid configuration does not prevent:
-[08_usage.md](docs/08_usage.md).
+The source, increment strategy (`source.increment_strategy`) and verb for each step:
 
 | Step | Source | Strategy | Verb | Why |
 |---|---|---|---|---|
@@ -85,6 +83,10 @@ combinations, and the traps that a valid configuration does not prevent:
 | | | `checkpoint` | UPSERT | Latest version per key (SCD1) |
 | | | `checkpoint` · `watermark` | SCD2 | History of changes |
 | | | `watermark` | COMPLETE_DELTA, `snapshot_scope: delta` | Replays each export in order. A deletes feed retires keys |
+
+Comprehensive list of combinations:
+* [08_usage.md](docs/08_usage.md).
+* Combinations cheat sheet [examples](docs/examples/README.md)
 
 ## Documentation
 

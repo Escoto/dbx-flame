@@ -46,3 +46,6 @@ Thumbs.db
 
 # Ignore feature descriptions in progress
 requirements*.md
+
+# HTML sources of the docs' images and PDFs, kept locally only
+**/*.html

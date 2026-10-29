@@ -32,6 +32,10 @@ step, and the traps that a valid config doesn't rule out. The parameters themsel
 | | | `delta_read` | UPSERT · SCD2 · COMPLETE_DELTA (`snapshot_scope: delta`) | ⚠️ | Same, and deletes never reach Silver |
 | | | `delta_read` | COMPLETE_DELTA, `snapshot_scope: full` | ❌ | Each read is partial: every row it lacks would be retired |
 | | | `delta_read` + a deletes table | COMPLETE_DELTA | ❌ | Land the deletes feed in Bronze with its own `full_read` task, then apply it from there |
+| Inbound → Silver | Files (csv, json) | `checkpoint` | FULL · UPSERT | ⚠️ | Current state only, safe in a backlog: the newest export, or the newer row per key, wins. Skips Bronze, so no original record is kept. Prefer landing it in Bronze first |
+| | | `checkpoint` | SCD2 | ⚠️ | Each batch keeps only the latest version per key: in a backlog, the exports in between never reach the history |
+| | | `watermark` · `full_read` · `delta_read` | any | ❌ | Auto Loader only resumes from its checkpoint |
+| | | — | COMPLETE_DELTA | ❌ | Replays exports from a table: land the files in Bronze first |
 
 ## 2. Notes on every row
 
