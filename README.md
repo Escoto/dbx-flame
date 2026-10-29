@@ -24,24 +24,6 @@ Pipeline, Typing, Policies, Output.
 
 The project is **beta**. See [Status](#status).
 
-## What Every Table Gets
-
-- **Checked configuration.** Start checks each task before it reads data. An invalid setting,
-  or one with no effect, stops the run.
-- **Quality gates.** A [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset checks
-  each batch before the framework writes it. An `error` rule stops the batch. A `warn` rule
-  logs the failure and lets the batch continue. A run never logs an error and reports success.
-- **Row-level provenance.** The framework sets `__SOURCE` and `__EXPORT_DATE` when data
-  enters, and never changes them. Each Silver row traces back to the export it came from.
-- **An audit trail in your catalog.** Each run that passes Start writes to
-  `monitoring_{env}.audit.flame_logs`. Each row names its job, run and task. A run that
-  cannot log stops before it touches data. Schema: [00_overview.md](docs/00_overview.md#glossary).
-  Each audit event also prints to the driver's stdout. If the cluster sends stdout to
-  CloudWatch (for example, with the CloudWatch agent in an init script), the events also
-  appear there.
-- **One set of write verbs.** `APPEND`, `FULL`, `UPSERT`, `SCD2` and `COMPLETE_DELTA` work the
-  same for `Inbound → Bronze` and `Bronze → Silver`.
-
 ## Quick Look
 
 Two tasks: CSV files into Bronze, then Bronze into Silver with an SCD Type 1 upsert on
@@ -69,6 +51,24 @@ output.event_time.column: __EXPORT_DATE
 
 Both tasks are entries in a workflow YAML that the bundle deploys. All verbs:
 [03_write_verbs.md](docs/03_write_verbs.md).
+
+## What Every Table Gets
+
+- **Checked configuration.** Start checks each task before it reads data. An invalid setting,
+  or one with no effect, stops the run.
+- **Quality gates.** A [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset checks
+  each batch before the framework writes it. An `error` rule stops the batch. A `warn` rule
+  logs the failure and lets the batch continue. A run never logs an error and reports success.
+- **Row-level provenance.** The framework sets `__SOURCE` and `__EXPORT_DATE` when data
+  enters, and never changes them. Each Silver row traces back to the export it came from.
+- **An audit trail in your catalog.** Each run that passes Start writes to
+  `monitoring_{env}.audit.flame_logs`. Each row names its job, run and task. A run that
+  cannot log stops before it touches data. Schema: [00_overview.md](docs/00_overview.md#glossary).
+  Each audit event also prints to the driver's stdout. If the cluster sends stdout to
+  CloudWatch (for example, with the CloudWatch agent in an init script), the events also
+  appear there.
+- **One set of write verbs.** `APPEND`, `FULL`, `UPSERT`, `SCD2` and `COMPLETE_DELTA` work the
+  same for `Inbound → Bronze` and `Bronze → Silver`.
 
 ## Recommended Combinations
 
