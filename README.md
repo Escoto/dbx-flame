@@ -85,8 +85,8 @@ The source, increment strategy (`source.increment_strategy`) and verb for each s
 | | | `watermark` | COMPLETE_DELTA, `snapshot_scope: delta` | Replays each export in order. A deletes feed retires keys |
 
 Comprehensive list of combinations:
+* [Cheat sheet](docs/examples/README.md)
 * [08_usage.md](docs/08_usage.md).
-* Combinations cheat sheet [examples](docs/examples/README.md)
 
 ## Documentation
 
