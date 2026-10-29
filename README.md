@@ -1,7 +1,7 @@
 # dbx-flame
 
-A configuration-driven data engineering framework for Databricks. Onboarding a new dataset
-means writing a workflow YAML — never Python.
+A configuration-driven framework that loads governed, traceable data into Databricks. You
+onboard a dataset with a workflow YAML, not with Python.
 
 
 [![PyPI][PyPI]][PyPI-url]
@@ -14,17 +14,38 @@ means writing a workflow YAML — never Python.
 
 ## Why
 
-Most Databricks pipelines grow one notebook per dataset. This framework inverts that: a
-single typed engine reads a workflow YAML and carries every dataset through the same five
-layers — Start, Pipeline, Typing, Policies, Output. A new source is a new YAML file, not a
-new code path.
+dbx-flame builds the data foundation that the "data intelligence" sits on: governed,
+traceable Bronze and Silver tables in Unity Catalog. Genie, agents and AI functions only work
+as well as the tables and metadata under them.
 
-The project is **alpha** — see [Status](#status) for what's implemented today.
+Most Databricks pipelines grow one notebook per dataset. dbx-flame uses one typed engine
+instead. It reads a workflow YAML and moves each dataset through the same five layers: Start,
+Pipeline, Typing, Policies, Output.
+
+The project is **beta**. See [Status](#status).
+
+## What Every Table Gets
+
+- **Checked configuration.** Start checks each task before it reads data. An invalid setting,
+  or one with no effect, stops the run.
+- **Quality gates.** A [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset checks
+  each batch before the framework writes it. An `error` rule stops the batch. A `warn` rule
+  logs the failure and lets the batch continue. A run never logs an error and reports success.
+- **Row-level provenance.** The framework sets `__SOURCE` and `__EXPORT_DATE` when data
+  enters, and never changes them. Each Silver row traces back to the export it came from.
+- **An audit trail in your catalog.** Each run that passes Start writes to
+  `monitoring_{env}.audit.flame_logs`. Each row names its job, run and task. A run that
+  cannot log stops before it touches data. Schema: [00_overview.md](docs/00_overview.md#glossary).
+  Each audit event also prints to the driver's stdout. If the cluster sends stdout to
+  CloudWatch (for example, with the CloudWatch agent in an init script), the events also
+  appear there.
+- **One set of write verbs.** `APPEND`, `FULL`, `UPSERT`, `SCD2` and `COMPLETE_DELTA` work the
+  same for `Inbound → Bronze` and `Bronze → Silver`.
 
 ## Quick Look
 
-Two tasks, two YAML blocks — CSV into Bronze, then Bronze into Silver with SCD Type 1
-upsert on `CLAIM_ID`:
+Two tasks: CSV files into Bronze, then Bronze into Silver with an SCD Type 1 upsert on
+`CLAIM_ID`.
 
 ```yaml
 # Inbound → Bronze
@@ -46,47 +67,35 @@ output.keys: CLAIM_ID
 output.event_time.column: __EXPORT_DATE
 ```
 
-No code changes for either step — both are entries in a workflow YAML deployed through the
-bundle. See [03_write_verbs.md](docs/03_write_verbs.md) for the full verb matrix.
+Both tasks are entries in a workflow YAML that the bundle deploys. All verbs:
+[03_write_verbs.md](docs/03_write_verbs.md).
 
 ## Recommended Combinations
 
-The source, increment strategy (`source.increment_strategy`) and verb to use at each step.
-Every other combination, and the traps a valid config doesn't rule out, are in
+The source, increment strategy (`source.increment_strategy`) and verb for each step. Other
+combinations, and the traps that a valid configuration does not prevent:
 [08_usage.md](docs/08_usage.md).
 
 | Step | Source | Strategy | Verb | Why |
 |---|---|---|---|---|
-| Inbound → Bronze | Files (csv, json) | `checkpoint` | APPEND | Bronze keeps every export exactly as it arrived |
+| Inbound → Bronze | Files (csv, json) | `checkpoint` | APPEND | Bronze keeps each export exactly as it arrived |
 | External table → Bronze | A table we didn't create (e.g. a federated one) | `full_read` | APPEND | One complete snapshot per run. Sees deletes |
-| | | `delta_read` | APPEND | Only the rows changed since the last run, for a table too large to read whole. Deletes are invisible |
+| | | `delta_read` | APPEND | Only the rows changed since the last run, for a table too large to read whole. Misses deletes |
 | Bronze → Silver | A table we stamped | `checkpoint` | FULL | The newest export is the current state |
 | | | `checkpoint` | UPSERT | Latest version per key (SCD1) |
 | | | `checkpoint` · `watermark` | SCD2 | History of changes |
-| | | `watermark` | COMPLETE_DELTA, `snapshot_scope: delta` | Replays every export in order; a deletes feed retires keys |
-
-## Key Capabilities
-
-- **Config-driven onboarding** — declare an origin, a write verb and a target; the framework
-  validates the combination and runs it. No per-dataset Python.
-- **Data handling verbs** — `APPEND`, `FULL`, `UPSERT`, `SCD2`, `COMPLETE_DELTA` — layer-agnostic,
-  so the same mechanics serve `Inbound → Bronze` or `Bronze → Silver`.
-- **Quality gates** — every batch is checked against a
-  [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset you define before any data is propagated;
-  `error` refuses the batch, `warn` logs and lets it through.
-- **Fail fast, fail loud** — Invalid Configs or Failed Data QA stops the run and logs the issue. Nothing logs an error and reports success.
+| | | `watermark` | COMPLETE_DELTA, `snapshot_scope: delta` | Replays each export in order. A deletes feed retires keys |
 
 ## Documentation
 
 Start with the [quick start](docs/README.md#quick-start): the catalogs, volumes and naming
-rules the framework needs. [docs/README.md](docs/README.md) also lists every document.
+rules that the framework needs. [docs/README.md](docs/README.md) lists every document.
 
 ## Development
 
-Targets Linux; on Windows, work inside WSL, since Spark doesn't run natively there (Required for running unit tests).
-
-Needs a JDK (11 or 17, for PySpark), Python **3.11** (matches Databricks Runtime 15.4 LTS) and
-[Poetry](https://python-poetry.org/) 2.x.
+The project targets Linux. On Windows, use WSL, because Spark does not run natively there. You
+need a JDK (11 or 17, for PySpark), Python **3.11** (the version
+in Databricks Runtime 15.4 LTS) and [Poetry](https://python-poetry.org/) 2.x.
 
 ```bash
 poetry env use python3.11   # once, to pin the interpreter
@@ -94,41 +103,30 @@ make install                # runtime + dev dependencies
 make test                   # unit tests with coverage
 ```
 
-Review the [Makefile](Makefile) to lists the rest.
-
-Platform tests are real Databricks jobs under
-[platform_tests/](platform_tests/) - with real life scenarios; see [05_testing.md](docs/05_testing.md).
+The [Makefile](Makefile) lists the other targets. Platform tests are real Databricks jobs
+that run real-life scenarios: [platform_tests/](platform_tests/) and
+[05_testing.md](docs/05_testing.md).
 
 ## Deploying to Databricks
 
-The bundle in [databricks.yml](databricks.yml) is configured to work with a Python wheel: it
-builds the wheel, then deploys the bundle. Authenticate with a CLI profile or with
-`DATABRICKS_HOST` / `DATABRICKS_TOKEN`. A new workspace first needs its catalogs, schemas and
-volumes; see the [quick start](docs/README.md#quick-start).
+The bundle in [databricks.yml](databricks.yml) builds the Python wheel, then deploys it.
+Authenticate with a CLI profile or with `DATABRICKS_HOST` / `DATABRICKS_TOKEN`. A new
+workspace first needs the setup in the [quick start](docs/README.md#quick-start).
 
 ```bash
 databricks bundle deploy
 ```
 
-## Traceability
-
-Every run that passes config validation writes an audit trail to your own catalog
-(`monitoring_{env}.audit.flame_logs`), not to vendor telemetry. Each row names the job, run and task
-that produced it. The audit write comes first, so a run that can't log fails before touching
-any data. Schema: [00_overview.md](docs/00_overview.md#glossary).
-
 ## Status
 
-Start, Pipeline (CSV + JSON + table), Typing, Policies (DQX), and all five write verbs are
-implemented and tested. The export task writes a schema's objects to CSV, leaving out or renaming
-columns, with a checksum per file and a manifest, and delivers them as a zip or loose files. The
-SAS origin and the Gold example view are not implemented yet.
-Full phase-by-phase status:
-[06_roadmap.md](docs/06_roadmap.md).
+Implemented and tested: Start, Pipeline (CSV, JSON and table), Typing, Policies (DQX) and all
+five write verbs. The export task writes a schema's objects to CSV files, with a checksum per
+file and a manifest ([09_export.md](docs/09_export.md)). Not implemented yet: the SAS origin
+and the Gold example view. Status per phase: [06_roadmap.md](docs/06_roadmap.md).
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Apache 2.0. See [LICENSE](LICENSE).
 
 <!-- MARKDOWN LINKS & IMAGES -->
 
@@ -147,7 +145,7 @@ Apache 2.0 — see [LICENSE](LICENSE).
 [PyPI]: https://img.shields.io/pypi/v/dbx-flame?color=blue
 [PyPI-url]: https://pypi.org/project/dbx-flame/
 
-[Status]: https://img.shields.io/badge/status-alpha-blue
+[Status]: https://img.shields.io/badge/status-beta-blue
 
 [License]: https://img.shields.io/badge/license-Apache%202.0-blue
 [License-url]: LICENSE
