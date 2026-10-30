@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
     from dbx_flame.context.config import IncrementStrategy, TaskConfig
+    from dbx_flame.context.table_config import TableConfig
     from dbx_flame.observability.audit_logger import AuditLogger
 
 
@@ -45,6 +46,10 @@ class Context:
     # The DQX ruleset, read and validated at Start. It rides on the Context because the
     # runner executes inside foreachBatch, where DQX cannot reach a workspace to load it.
     checks: list[dict[str, Any]] = field(default_factory=list)
+
+    # The table_config file, read and validated at Start for the same reason: a bad file
+    # fails the task before it reads any data. None when the task names no file.
+    table_config: Optional[TableConfig] = None
 
     # When a full read stamps a table we didn't create. Taken once per run, so the updates
     # and deletes reads share one snapshot, and every action re-evaluating a frame gets the

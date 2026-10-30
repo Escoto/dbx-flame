@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 from pyspark.sql.types import ArrayType, MapType, StructType
 
-from dbx_flame.observability.tagging import apply_tags
 from dbx_flame.output.mechanics import EXPORT_DATE
+from dbx_flame.output.table_metadata import apply_metadata
 from dbx_flame.pipelines.enrichment import ANCHOR_DT
 
 if TYPE_CHECKING:
@@ -51,9 +51,9 @@ def stats_columns(schema: StructType) -> str:
 class DeltaTableConfig:
     """Everything the framework configures on a Delta table, in one place.
 
-    Today that is which columns carry data-skipping statistics, and the task's Unity
-    Catalog tags. Other table-level settings (Z-ordering, vacuum retention, ...) belong
-    here too.
+    Today that is which columns carry data-skipping statistics, and the comments and
+    Unity Catalog tags from the task's table_config. Other table-level settings
+    (Z-ordering, vacuum retention, ...) belong here too.
     """
 
     def __init__(self, ctx: Context) -> None:
@@ -68,20 +68,34 @@ class DeltaTableConfig:
         return {STATS_COLUMNS: stats_columns(df.schema)}
 
     def apply(self) -> None:
-        """Bring an existing table's configuration in line with its schema and tags.
+        """Bring an existing table's configuration in line with its schema and table_config.
 
-        An explicit statistics list doesn't pick up a column schema evolution adds, the
+        Runs after every write, so a column schema evolution just added gets its comment,
+        tags and statistics on the same run.
+        """
+        ctx = self._ctx
+        table = ctx.target_table
+        if not ctx.spark.catalog.tableExists(table):
+            if ctx.table_config:
+                ctx.logger.warning(
+                    name="table_metadata_skipped",
+                    source=_SOURCE,
+                    description=f"{table} does not exist, so its table_config was not applied",
+                )
+            return
+
+        schema = ctx.spark.table(table).schema
+        apply_metadata(ctx, schema)
+        self._keep_stats_columns(schema)
+
+    def _keep_stats_columns(self, schema: StructType) -> None:
+        """An explicit statistics list doesn't pick up a column schema evolution adds, the
         way Delta's default would. The ALTER is a metadata-only commit, and only runs
         when the list actually changes.
         """
         ctx = self._ctx
-        apply_tags(ctx)
-
         table = ctx.target_table
-        if not ctx.spark.catalog.tableExists(table):
-            return
-
-        wanted = stats_columns(ctx.spark.table(table).schema)
+        wanted = stats_columns(schema)
         properties = {
             row.key: row.value for row in ctx.spark.sql(f"SHOW TBLPROPERTIES {table}").collect()
         }

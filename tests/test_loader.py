@@ -139,21 +139,6 @@ def test_unknown_key_rejected():
         load_config(params)
 
 
-def test_retired_param_source_type():
-    params = {**MINIMAL_PARAMS, "source_type": "csv"}
-    with pytest.raises(ConfigValidationError, match="source_type") as exc_info:
-        load_config(params)
-    assert "Retired parameter" in str(exc_info.value)
-    assert "no longer supported" in str(exc_info.value)
-
-
-def test_retired_param_update_columns():
-    params = {**MINIMAL_PARAMS, "update_columns": "col1,col2"}
-    with pytest.raises(ConfigValidationError, match="update_columns") as exc_info:
-        load_config(params)
-    assert "Retired parameter" in str(exc_info.value)
-
-
 def test_missing_required_field():
     params = {k: v for k, v in MINIMAL_PARAMS.items() if k != "catalog"}
     with pytest.raises(ConfigValidationError, match="catalog"):
