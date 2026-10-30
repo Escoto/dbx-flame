@@ -1,4 +1,4 @@
-# dbx-flame
+# dbx-flame <img src="docs/assets/flame.svg" alt="" height="28">
 
 A configuration-driven framework that loads governed, traceable data into Databricks. You
 onboard a dataset with a workflow YAML, not with Python.
