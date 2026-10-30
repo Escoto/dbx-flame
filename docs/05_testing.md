@@ -49,7 +49,7 @@ Every one follows the same shape:
 | `full_csv_long_backlog_test` | FULL with three exports in one batch: the target holds only the newest export |
 | `full_txt_weekly_test` | Weekly pipe-delimited `.txt` snapshots into FULL over three scheduled runs: an unscheduled export arriving between runs lands in Bronze but never reaches Silver |
 | `complete_delta_csv_test` | COMPLETE_DELTA: a multi-snapshot backlog replayed in order, plus a watermark re-run that must be a no-op |
-| `complete_delta_csv_typecasting_test` | A week of daily full exports with a real cast config: type survival through promotion, a 7-column composite key, genuinely empty fields |
+| `complete_delta_csv_typecasting_test` | A week of daily full exports with a real table config: type survival through promotion, a 7-column composite key, genuinely empty fields |
 | `complete_delta_csv_typecasting_full_test` | The same fixtures under `snapshot_scope: full`: only the newest export is replayed, with the *identical* current state |
 | `append_table_full_read_test` | `full_read` of a plain table with no framework columns, standing in for a foreign one: two reads land in Bronze as two snapshots with `TABLE:` provenance, and Silver (FULL) matches the source after it changed in place, the deleted row included |
 | `append_table_delta_read_test` | `delta_read` of a plain table on its `MODIFIED_AT`: the first read lands every row, the second only the updated and added ones, each under its own `TABLE:` stamp; Silver (UPSERT) holds the newest state per key, each row naming the read that brought it in, and keeps the row deleted at the source |

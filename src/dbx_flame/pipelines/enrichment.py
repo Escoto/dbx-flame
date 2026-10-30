@@ -158,7 +158,7 @@ def _select_renamed(df: DataFrame, renames: dict[str, str]) -> DataFrame:
 def stamp_anchor(df: DataFrame, ctx: Context) -> DataFrame:
     """Copy source.anchor_dt into __ANCHOR_DT as a timestamp.
 
-    Runs after typing, so a column the cast config already typed is copied as is. An
+    Runs after typing, so a column the table config already cast is copied as is. An
     unparseable value fails the batch, like a silent NULL from a cast. A NULL is only
     logged: an anchored read will never pick that row up.
     """

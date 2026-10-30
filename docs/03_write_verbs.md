@@ -19,7 +19,7 @@ The Output layer writes with one of five verbs. Verbs are **layer-agnostic**: an
 
 `__LAST_MODIFIED_DT` is not provenance: each table has its own, and a write replaces the value a row read from another framework table carried in. A row's `__SOURCE` and `__EXPORT_DATE` lead back to its Bronze row, whose own `__LAST_MODIFIED_DT` is the ingest time. It is metadata only: no verb or increment strategy reads it. A table we didn't create that already has a `__LAST_MODIFIED_DT` column has that value overwritten.
 
-Every table the framework writes also keeps `delta.dataSkippingStatsColumns` (set by `DeltaTableConfig`): Delta's default first 32 leaf columns, plus `__EXPORT_DATE` and `__ANCHOR_DT` wherever they sit, so filters on them can skip files. The property replaces Delta's default rather than adding to it, so it is recomputed after any write that evolves the schema. It also keeps the task's `output.tags` as Unity Catalog tags.
+Every table the framework writes also keeps `delta.dataSkippingStatsColumns` (set by `DeltaTableConfig`): Delta's default first 32 leaf columns, plus `__EXPORT_DATE` and `__ANCHOR_DT` wherever they sit, so filters on them can skip files. The property replaces Delta's default rather than adding to it, so it is recomputed after any write that evolves the schema. It also keeps the comments and tags from the task's `table_config`, and a comment on each of the columns above, as Unity Catalog metadata ([04_policies.md](04_policies.md#8-table-comments-and-tags)).
 
 Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audit log; names in `observability/kpi.py`). The names follow the verb, not the layer: a verb can write any layer, and the audit row's catalog, schema and table already say which.
 

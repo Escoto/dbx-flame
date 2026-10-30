@@ -17,8 +17,8 @@ shared_params: &shared_params
   env: "${bundle.target}"
   metadata_path: /Volumes/edc_${bundle.target}/metadata/checkpoints/
   schema_evolution: fail_on_new_columns
-  output.tags.source: edc
-  output.tags.environment: "${bundle.target}"
+  # The comments and tags kept on every table this job writes.
+  table_config: ${workspace.file_path}/edc_table_config.yml
 
 identity: &identity
   __workflow_id: "{{job.id}}"

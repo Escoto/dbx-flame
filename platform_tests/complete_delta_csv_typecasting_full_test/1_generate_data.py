@@ -7,7 +7,7 @@ identically seven times.
 Each file name carries the 14-digit stamp that __EXPORT_DATE and the snapshot id are
 both derived from. UPDATEDATE is something else entirely: the record's own edit time,
 in CDR's MM/dd/yyyy HH:mm:ss, and the column the validity windows are built from
-once the cast config has turned it into a real timestamp.
+once the table config has cast it to a real timestamp.
 """
 
 import os
