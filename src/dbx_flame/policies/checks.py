@@ -18,7 +18,7 @@ def load_checks(path: str) -> list[dict]:
     """Read a DQX ruleset and hand back the checks DQX's metadata API expects.
 
     Volume and Workspace paths are ordinary files on Databricks, so a plain open() is
-    enough — the same reason the cast config is read this way. Going through DQX's own
+    enough — the same reason the table config is read this way. Going through DQX's own
     storage layer would mean constructing an engine, and an engine wants a workspace
     client that reading a file has no reason to hold.
 

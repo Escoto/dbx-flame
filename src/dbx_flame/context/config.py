@@ -199,7 +199,7 @@ class SourceConfig(BaseModel):
             # _rescued_data, which sanitization drops, so they'd land as silent NULLs.
             problems.append(
                 "source.options.schema_hints applies to json only; "
-                "type other origins' columns in typing.cast_config"
+                "type other origins' columns in table_config"
             )
 
         if problems:
@@ -253,9 +253,6 @@ class OutputConfig(BaseModel):
     dedup: DedupConfig = DedupConfig()
     deletes: Optional[DeletesConfig] = None
 
-    # Unity Catalog tags kept on the target, set as output.tags.<name>: <value>.
-    tags: dict[str, str] = {}
-
     @field_validator("table")
     @classmethod
     def _table_must_be_uppercase(cls, value: str) -> str:
@@ -275,7 +272,8 @@ class PoliciesConfig(BaseModel):
 
 
 class TypingConfig(BaseModel):
-    cast_config: Optional[str] = None
+    """How casts run. What each column is cast to lives in the table_config file."""
+
     validate_casts: bool = True
 
 
@@ -283,6 +281,10 @@ class TaskConfig(BaseModel):
     catalog: str
     env: str
     metadata_path: str
+
+    # Path to the target's table_config YAML: the table's comment and tags, and each
+    # column's cast, comment and tags. Read and validated at Start.
+    table_config: Optional[str] = None
 
     # Decide how the reader and writer react to new columns.
     schema_evolution: SchemaEvolution = SchemaEvolution.FAIL_ON_NEW_COLUMNS

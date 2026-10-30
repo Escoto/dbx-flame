@@ -38,6 +38,7 @@ workflow that forgets them is visible in the audit table rather than silently un
 catalog: clinical                 # str, required
 env: dev                          # str, required   (always ${bundle.target})
 metadata_path: /Volumes/clinical_dev/.../metadata/   # str, required; a Volume in {catalog}_{env}
+table_config: /Workspace/.../SUBJECTS.yml   # optional; casts, comments and tags (§5)
 
 # ── source (Layer 2: Pipeline) ───────────────────────────
 source.origin: csv                # enum: csv | json | sas | table   (required)
@@ -78,7 +79,6 @@ schema_evolution: fail_on_new_columns    # what happens when a new column shows 
                                         # one knob, read and write together — see §4
 
 # ── typing (Layer 3) ─────────────────────────────────────
-typing.cast_config: /Workspace/.../subjects_cast.yml   # optional; absent → types pass through
 typing.validate_casts: true             # bool, default true (silent-NULL detection)
 
 # ── policies (Layer 4) ───────────────────────────────────
@@ -99,7 +99,6 @@ output.dedup.order_by_format: "M/d/yyyy h:mm:ss a"  # optional
 output.deletes.keys: "ID"               # deletes feed join keys
 output.deletes.event_time.column: DATE_DELETED
 output.deletes.event_time.format: yyyyMMddHHmmss
-output.tags.project: dbx-flame          # Unity Catalog tags on the target, one key per tag
 ```
 
 Notes:
@@ -229,34 +228,65 @@ compare the batch against the target before their first commit and raise
 `PlatformPolicyViolation` (`unexpected_columns`), so `fail_on_new_columns` means the same
 thing on every verb.
 
-## 5. Cast config file (Layer 3)
+## 5. Table config file
 
-Column types live in their own YAML, referenced by `typing.cast_config`. A type list can be
-long, and keeping it out of the workflow config stops it from muddying the task parameters:
+What the target table *is* lives in its own YAML, referenced by `table_config`: the
+table's comment and tags, and each column's type, comment and tags. A column list can be
+long, and keeping it out of the workflow config stops it from muddying the task
+parameters. It is also the one place a table is described, so Genie, Catalog search and
+an auditor read the same definitions the pipeline applies.
 
 ```yaml
+comment: "Study milestones per site, one row per milestone version."
+tags:
+  domain: clinical
 columns:
-  - name: ID
-    cast: { target_type: bigint }
+  - name: MILESTONESEQ
+    cast:
+      target_type: decimal(10,2)
+    comment: "Expected milestone completion order for a study at a site."
+    tags:
+      PII: "no"
+      category: study_status
   - name: VISIT_DATE
     cast: { target_type: date, format: "yyyy-MM-dd" }
-  - name: MODIFIED
-    cast: { target_type: timestamp, format: "M/d/yyyy h:mm:ss a" }
+  - name: SITE_NAME
+    comment: "The site's name as the CRO reports it."
 ```
 
-The file carries types and nothing else. Whether casts are validated is the workflow-level
-`typing.validate_casts`, not a property of the type list, and unknown keys are rejected here
-for the same reason they are in the task config.
+| Key | Where | Effect |
+|---|---|---|
+| `comment` | table, column | Unity Catalog comment on the table or column |
+| `tags` | table, column | Unity Catalog tags, one `name: value` per tag |
+| `columns[].name` | column | the source column, as the batch carries it after renames |
+| `columns[].cast` | column | `target_type`, plus `format` for a `date` or `timestamp` |
 
-**A column the config does not name keeps the type it arrived with.** Out of Auto
-Loader that is string, so declaring types on the way into Bronze is enough to define
-the table. It matters on promotion: a Bronze→Silver task that declares nothing is
-saying *no changes*, not *flatten back to string*, so Bronze's types survive. Note
-that re-declaring the same config at Silver is not a way to achieve this — a
-`date`/`timestamp` entry would re-parse an already-typed column with its source
-format and fail the cast validation.
+Every key is optional, but Start rejects a file that would do nothing:
 
-Cast validation is single-pass, and framework metadata columns are exempt — a `__*` column named here is left alone, with a warning in the audit table.
+- an empty file, or one that sets none of `comment`, `tags` and `columns`;
+- a column entry with only a `name`;
+- a tag name or value that isn't a string. YAML reads an unquoted `no`, `yes`, `on`, `off`
+  or a number as something else, so quote it: `PII: "no"`;
+- a blank `comment`, a column listed twice, or a framework (`__`) column: the framework
+  owns those columns, and keeps its own comments on them;
+- unknown keys, for the same reason they are rejected in the task config.
+
+The file is read and validated at Start, before any data is read. A column it names that
+the batch doesn't carry fails the run before the write, even when the entry only sets a
+comment or tags. Whether casts are validated is the workflow-level `typing.validate_casts`,
+not a property of the file.
+
+**Casts.** A column the file doesn't cast keeps the type it arrived with. Out of Auto
+Loader that is string, so declaring types on the way into Bronze is enough to define the
+table. It matters on promotion: a Bronze→Silver task that declares nothing is saying
+*no changes*, not *flatten back to string*, so Bronze's types survive. Re-declaring the
+same casts at Silver is not a way to achieve this: a `date`/`timestamp` entry would
+re-parse an already-typed column with its source format and fail the cast validation. A
+Silver task that needs only comments and tags gets a file without casts. The named
+columns come first in the table, in file order. Cast validation is single-pass.
+
+**Comments and tags** are kept on the target after every write: see
+[04_policies.md](04_policies.md#8-table-comments-and-tags).
 
 ## 6. Checks file (Layer 4)
 
@@ -310,7 +340,7 @@ substitutions keep working; the Start layer is what turns the dotted keys into t
 nested, validated `TaskConfig` above.
 
 Note `output.event_time.format`. It is needed only while `UPDATEDTIME` is still a
-string. Once a cast config has typed that column, the format must be **omitted** here —
+string. Once a table config has cast that column, the format must be **omitted** here —
 re-parsing an already-typed timestamp with a source format yields NULL and fails cast
 validation. See §5.
 

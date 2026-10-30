@@ -29,7 +29,7 @@ Context → Pipeline/Typing → Writers → Policies → remaining origins.
 ## P1 — Start layer + Observability
 
 - `context/`: pydantic `TaskConfig` model tree, flat-param loader (dotted-key splitting, coercion, comma-lists, enums), unknown-key rejection, aggregated `ConfigValidationError`, origin × verb requirements validation (against writer-declared `Requirements`), resolved names/paths, frozen `Context`.
-- `observability/`: buffered `AuditLogger`, KPI helpers, `tagging.py`.
+- `observability/`: buffered `AuditLogger`, KPI helpers.
 - `entrypoints/run.py`: parameter intake → Context → dispatch skeleton.
 
 **Exit**: every parameter in [02_config_schema.md](02_config_schema.md) parses and validates; all negative-config unit tests pass.

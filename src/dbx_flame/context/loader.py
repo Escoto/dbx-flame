@@ -16,6 +16,7 @@ from dbx_flame.context.config import (
     in_volume_of,
 )
 from dbx_flame.context.context import Context, RunIdentity
+from dbx_flame.context.table_config import TableConfig, TableConfigError, load_table_config
 from dbx_flame.observability.audit_logger import AuditLogger
 from dbx_flame.output.registry import VERB_REQUIREMENTS
 from dbx_flame.pipelines.preprocessors import PREPROCESSORS, RecordEnvelope
@@ -26,8 +27,6 @@ if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
     from dbx_flame.output.base import Requirements
-
-_RETIRED_PARAMS = {"source_type", "update_columns"}
 
 _Config = TypeVar("_Config", bound=BaseModel)
 
@@ -176,16 +175,7 @@ def load_config(
     """
     errors: list[str] = []
 
-    for key in params:
-        if key in _RETIRED_PARAMS:
-            errors.append(
-                f"Retired parameter '{key}' is no longer supported; "
-                "remove it from your workflow YAML."
-            )
-
-    clean_params = {k: v for k, v in params.items() if k not in _RETIRED_PARAMS}
-
-    nested, conflict_errors = _unflatten(clean_params)
+    nested, conflict_errors = _unflatten(params)
     errors.extend(conflict_errors)
 
     errors.extend(_collect_unknown_keys(nested, model))
@@ -435,6 +425,13 @@ def build_context(
         except ChecksValidationError as exc:
             errors.extend(exc.errors)
 
+    table_config: TableConfig | None = None
+    if config.table_config:
+        try:
+            table_config = load_table_config(config.table_config)
+        except TableConfigError as exc:
+            errors.extend(exc.errors)
+
     if errors:
         raise ConfigValidationError(errors)
 
@@ -493,4 +490,5 @@ def build_context(
             or VERB_REQUIREMENTS[config.output.verb].increment_strategy
         ),
         checks=checks,
+        table_config=table_config,
     )

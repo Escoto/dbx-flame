@@ -31,7 +31,7 @@ policies.checks_file: /Volumes/.../checks/SUBJECTS.yml   # optional
 With no `policies.checks_file`, the layer does nothing at all.
 
 The ruleset is a detached per-table YAML in DQX's own format, referenced by path — exactly
-as `typing.cast_config` holds column types:
+as `table_config` holds column types:
 
 ```yaml
 - criticality: error
@@ -157,13 +157,27 @@ DQX can split a batch into valid and invalid rows instead of refusing it whole
 introduces a second write target and the configuration to describe it, where a gate
 introduces neither. The runner is the only place that would change.
 
-## 8. Table tagging
+## 8. Table comments and tags
 
-`output.tags.<name>: <value>` keeps Unity Catalog tags on the target. `DeltaTableConfig`
-applies them after every write through `observability/tagging.py`: it sets only the tags
-whose value changed, leaves tags it doesn't name alone, and logs a `table_not_tagged`
-warning when the target doesn't exist. It is governance metadata, not a dataset rule, so it
-sits outside the Policies layer.
+The comments and tags in the task's `table_config` file
+([02_config_schema.md](02_config_schema.md#5-table-config-file)) are kept on the target as
+Unity Catalog metadata. `DeltaTableConfig` applies them after every write, through
+`output/table_metadata.py`:
+
+- the table comment and table tags;
+- the comment and tags of each column the file names;
+- a fixed comment on each framework (`__`) column the table carries, with or without a
+  file, so a reader of the table alone knows that `__EXPORT_DATE` is the time to trust
+  and what the SCD2 columns mean.
+
+It writes only values that changed, and leaves comments and tags it doesn't name alone, so
+whatever a data steward sets on other columns survives. Every change of one run goes into
+one `table_metadata_applied` audit row. When the target doesn't exist yet it logs a
+`table_metadata_skipped` warning instead. A column that schema evolution adds gets its
+comment and tags on the same run.
+
+This is what Genie and Catalog search read to understand a table, and it is governance
+metadata, not a dataset rule, so it sits outside the Policies layer.
 
 ## 9. Platform policies
 

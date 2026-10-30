@@ -64,7 +64,7 @@ def test_happy_path_full():
         "output.deletes.keys": "ID, NAME",
         "output.deletes.event_time.column": "DELETED_AT",
         "output.deletes.event_time.format": "yyyy-MM-dd HH:mm:ss",
-        "typing.cast_config": "/Volumes/casts/agents.yml",
+        "table_config": "/Volumes/meta/tables/AGENTS.yml",
         "typing.validate_casts": "false",
         "policies.checks_file": "/Volumes/meta/checks/AGENTS.yml",
     }
@@ -88,7 +88,7 @@ def test_happy_path_full():
     assert config.output.deletes.keys == ["ID", "NAME"]
     assert config.output.deletes.event_time.column == "DELETED_AT"
     assert config.output.deletes.event_time.format == "yyyy-MM-dd HH:mm:ss"
-    assert config.typing.cast_config == "/Volumes/casts/agents.yml"
+    assert config.table_config == "/Volumes/meta/tables/AGENTS.yml"
     assert config.typing.validate_casts is False
     assert config.policies.checks_file == "/Volumes/meta/checks/AGENTS.yml"
 
@@ -139,21 +139,6 @@ def test_unknown_key_rejected():
         load_config(params)
 
 
-def test_retired_param_source_type():
-    params = {**MINIMAL_PARAMS, "source_type": "csv"}
-    with pytest.raises(ConfigValidationError, match="source_type") as exc_info:
-        load_config(params)
-    assert "Retired parameter" in str(exc_info.value)
-    assert "no longer supported" in str(exc_info.value)
-
-
-def test_retired_param_update_columns():
-    params = {**MINIMAL_PARAMS, "update_columns": "col1,col2"}
-    with pytest.raises(ConfigValidationError, match="update_columns") as exc_info:
-        load_config(params)
-    assert "Retired parameter" in str(exc_info.value)
-
-
 def test_missing_required_field():
     params = {k: v for k, v in MINIMAL_PARAMS.items() if k != "catalog"}
     with pytest.raises(ConfigValidationError, match="catalog"):
@@ -185,19 +170,16 @@ def test_nested_model_defaults():
     assert config.typing.validate_casts is True
     assert config.policies.checks_file is None
     assert config.schema_evolution.value == "fail_on_new_columns"
-    assert config.output.tags == {}
+    assert config.table_config is None
 
 
-def test_output_tags_are_collected_by_name():
-    params = {
-        **MINIMAL_PARAMS,
-        "output.tags.project": "dbx-flame",
-        "output.tags.environment": "dev",
-    }
-
-    config = load_config(params)
-
-    assert config.output.tags == {"project": "dbx-flame", "environment": "dev"}
+@pytest.mark.parametrize(
+    "key", ["typing.cast_config", "output.tags.project", "output.comment", "comment"]
+)
+def test_comments_tags_and_casts_belong_in_the_table_config_file(key):
+    """Not in the task parameters, so they have one home."""
+    with pytest.raises(ConfigValidationError, match="Unknown parameter"):
+        load_config({**MINIMAL_PARAMS, key: "x"})
 
 
 def test_dedup_config():

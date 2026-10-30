@@ -14,7 +14,6 @@ from dbx_flame.context.config import (
     SourceConfig,
     SourceOptions,
     TaskConfig,
-    TypingConfig,
     Verb,
 )
 from dbx_flame.context.context import RunIdentity
@@ -38,13 +37,14 @@ def mock_spark() -> MagicMock:
     return spark
 
 
-def _context(mock_spark, schema_evolution=None, **source_overrides):
+def _context(mock_spark, schema_evolution=None, table_config=None, **source_overrides):
     source = dict(origin=Origin.CSV, path="/Volumes/in/", directory="agents")
     source.update(source_overrides)
     config = TaskConfig(
         catalog="cro",
         env="dev_01",
         metadata_path="/Volumes/cro_dev_01/meta/",
+        table_config=table_config,
         **({"schema_evolution": schema_evolution} if schema_evolution else {}),
         source=SourceConfig(**source),
         output=OutputConfig(verb=Verb.APPEND, schema_name="bronze_cro", table="AGENTS"),
@@ -133,7 +133,7 @@ def test_a_csv_fixture_flows_to_a_typed_dataframe(spark, mock_spark, tmp_path):
 
     raw = spark.read.option("header", "true").csv(str(fixture))
     enriched = sanitize_column_names(add_provenance(raw, ctx), ctx_with_logger)
-    typed = CastService().apply(enriched, ctx.config.typing, ctx_with_logger)
+    typed = CastService().apply(enriched, ctx)
 
     row = typed.collect()[0]
     assert typed.columns == [
@@ -150,18 +150,18 @@ def test_a_csv_fixture_flows_to_a_typed_dataframe(spark, mock_spark, tmp_path):
     assert row["__SOURCE"].endswith("AGENTS_20240115103000.csv")
 
 
-def test_a_cast_config_applies_to_the_same_flow(spark, mock_spark, tmp_path):
+def test_a_table_config_applies_to_the_same_flow(spark, mock_spark, tmp_path):
     fixture = tmp_path / "AGENTS_20240115103000.csv"
     fixture.write_text("agent id,age\n1,42\n", encoding="utf-8")
-    cast_config = tmp_path / "cast.yml"
-    cast_config.write_text(
+    table_config = tmp_path / "AGENTS.yml"
+    table_config.write_text(
         "columns:\n  - name: AGE\n    cast:\n      target_type: int\n", encoding="utf-8"
     )
-    logger_ctx = MagicMock()
+    ctx = _context(mock_spark, table_config=str(table_config))
 
     raw = spark.read.option("header", "true").csv(str(fixture))
-    enriched = sanitize_column_names(add_provenance(raw, _context(mock_spark)), logger_ctx)
-    typed = CastService().apply(enriched, TypingConfig(cast_config=str(cast_config)), logger_ctx)
+    enriched = sanitize_column_names(add_provenance(raw, ctx), MagicMock())
+    typed = CastService().apply(enriched, ctx)
 
     assert dict(typed.dtypes)["AGE"] == "int"
     assert typed.collect()[0]["AGE"] == 42

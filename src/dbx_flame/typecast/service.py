@@ -9,15 +9,14 @@ from pyspark.sql import functions as F
 
 from dbx_flame.mechanics.columns import is_framework_column
 from dbx_flame.policies.platform import PlatformPolicy, violate
-from dbx_flame.typecast.models import CastSpec, load_cast_configuration
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from pyspark.sql import Column, DataFrame
 
-    from dbx_flame.context.config import TypingConfig
     from dbx_flame.context.context import Context
+    from dbx_flame.context.table_config import CastSpec
 
 _STRING = "string"
 _ORIGINAL_PREFIX = "_orig_"
@@ -29,7 +28,7 @@ _SOURCE = "typecast"
 
 
 class MissingColumnException(Exception):
-    """Raised when the cast config names a column the DataFrame does not have."""
+    """Raised when the table_config names a column the DataFrame does not have."""
 
 
 def _quoted(column: str) -> Column:
@@ -51,19 +50,19 @@ def _became_null(column: str) -> Column:
     return original.isNotNull() & (F.trim(original) != "") & _quoted(column).isNull()
 
 
-def _order(df: DataFrame, casts: dict[str, CastSpec]) -> list[str]:
-    """Declared columns first, in YAML order, then the rest, then framework metadata.
+def _order(df: DataFrame, named: list[str]) -> list[str]:
+    """Named columns first, in YAML order, then the rest, then framework metadata.
 
     The config doubles as a column ordering, which is why it is worth honouring even
-    for the columns it only names rather than retypes.
+    for the columns it only comments or tags rather than retypes.
     """
-    untouched = [c for c in df.columns if c not in casts and not is_framework_column(c)]
+    untouched = [c for c in df.columns if c not in named and not is_framework_column(c)]
     metadata = [c for c in df.columns if is_framework_column(c)]
-    return list(casts) + untouched + metadata
+    return named + untouched + metadata
 
 
 class CastService:
-    """Apply the casts the detached config declares, and only those.
+    """Apply the casts the table_config declares, and only those.
 
     A column the config does not name keeps the type it arrived with. Coming out of
     Auto Loader that is string, so bronze is unaffected; promoting an already-typed
@@ -71,16 +70,17 @@ class CastService:
     would quietly undo the types the previous layer established.
     """
 
-    def apply(self, df: DataFrame, cfg: TypingConfig, ctx: Context) -> DataFrame:
-        casts = self._resolve(df, cfg, ctx)
-        order = _order(df, casts)
+    def apply(self, df: DataFrame, ctx: Context) -> DataFrame:
+        named = self._named_columns(df, ctx)
+        casts = ctx.table_config.casts if ctx.table_config else {}
+        order = _order(df, named)
 
         # Casting to string cannot turn a present value into NULL, so a config that
         # only declares strings has nothing to check and is spared the extra pass.
         checked = [
             column for column, spec in casts.items() if spec.target_type.strip().lower() != _STRING
         ]
-        validating = bool(cfg.validate_casts and checked)
+        validating = bool(ctx.config.typing.validate_casts and checked)
 
         projection = [
             _cast(column, casts[column]) if column in casts else _quoted(column)
@@ -99,40 +99,24 @@ class CastService:
         self._reject_silent_nulls(casted, checked, ctx)
         return casted.drop(*[f"{_ORIGINAL_PREFIX}{column}" for column in checked])
 
-    def _resolve(self, df: DataFrame, cfg: TypingConfig, ctx: Context) -> dict[str, CastSpec]:
-        """The casts the config declares, in YAML order. Nothing is added to this."""
-        casts: dict[str, CastSpec] = {}
+    def _named_columns(self, df: DataFrame, ctx: Context) -> list[str]:
+        """Every column the table_config names, in YAML order.
 
-        if cfg.cast_config:
-            configuration = load_cast_configuration(cfg.cast_config)
-            available = set(df.columns)
-            missing: list[str] = []
-            exempt: list[str] = []
-            for configured in configuration.columns:
-                # Framework columns are exempt from user casts.
-                if is_framework_column(configured.name):
-                    exempt.append(configured.name)
-                elif configured.name not in available:
-                    missing.append(configured.name)
-                else:
-                    casts[configured.name] = configured.cast  # a repeated column: last wins
-            if missing:
-                raise MissingColumnException(
-                    f"{cfg.cast_config} configures columns the source does not have: "
-                    + ", ".join(missing)
-                )
-            if exempt:
-                ctx.logger.warning(
-                    name="cast_config_ignored_metadata",
-                    source=_SOURCE,
-                    description=(
-                        "Framework metadata columns are not user-castable and were "
-                        "left as they are: " + ", ".join(exempt)
-                    ),
-                    total=len(exempt),
-                )
+        Checked against the batch before the write, so a column that only carries a
+        comment or tags fails here too, rather than after the data is committed.
+        """
+        if not ctx.table_config:
+            return []
 
-        return casts
+        named = [column.name for column in ctx.table_config.columns]
+        available = set(df.columns)
+        missing = [name for name in named if name not in available]
+        if missing:
+            raise MissingColumnException(
+                f"table_config '{ctx.config.table_config}' names columns the source does "
+                "not have: " + ", ".join(missing)
+            )
+        return named
 
     def _reject_silent_nulls(self, casted: DataFrame, columns: list[str], ctx: Context) -> None:
         """One bounded pass over the batch — no second stream, no /tmp checkpoints.

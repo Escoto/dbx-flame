@@ -10,6 +10,7 @@ dbx_flame/
 │   ├── context/                     # LAYER 1 — Start
 │   │   ├── config.py                #   pydantic TaskConfig + nested models + enums
 │   │   ├── loader.py                #   flat params → nested dict → TaskConfig (coercion, aggregation of errors)
+│   │   ├── table_config.py          #   the table_config file: casts, comments and tags, read at Start
 │   │   └── context.py               #   Context: config + spark + run identity + logger + resolved names/paths
 │   ├── pipelines/                   # LAYER 2 — Pipeline
 │   │   ├── base.py                  #   SourcePipeline protocol
@@ -20,7 +21,6 @@ dbx_flame/
 │   │   ├── preprocessors.py         #   registry: record_envelope
 │   │   └── enrichment.py            #   provenance columns, column sanitization, rename patterns
 │   ├── typecast/                    # LAYER 3 — Typing
-│   │   ├── models.py                #   CastConfiguration (column specs, formats)
 │   │   └── service.py               #   cast + single-pass silent-NULL validation
 │   ├── policies/                    # LAYER 4 — Policies
 │   │   ├── base.py                  #   PolicyResult, PolicyViolation, Severity
@@ -34,11 +34,11 @@ dbx_flame/
 │   │   │   ├── upsert.py            #   UPSERT (SCD1)
 │   │   │   ├── scd2.py              #   SCD2 merge engine (close-and-insert)
 │   │   │   └── complete_delta.py    #   snapshot replay orchestration on top of scd2.py
-│   │   └── table_config.py          #   DeltaTableConfig: table-level settings (statistics columns)
+│   │   ├── table_config.py          #   DeltaTableConfig: table-level settings (statistics columns, comments, tags)
+│   │   └── table_metadata.py        #   Unity Catalog comments and tags on the target
 │   ├── observability/
 │   │   ├── audit_logger.py          #   buffered logger → `monitoring_{env}`.audit.flame_logs
-│   │   ├── kpi.py                   #   KPI event helpers
-│   │   └── tagging.py               #   Unity Catalog table tagging
+│   │   └── kpi.py                   #   KPI event helpers
 │   ├── mechanics/
 │   │   └── columns.py               #   which columns are the framework's (__ prefix)
 │   └── entrypoints/
@@ -138,11 +138,11 @@ PREPROCESSORS = {"record_envelope": RecordEnvelope}
 
 ### 3.3 Typing (`dbx_flame.typecast`)
 
-Validation is single-pass: the `_orig_*` comparison happens inside the same batch before the write, so no second stream and no scratch checkpoints are needed. Framework metadata columns are exempt from user cast configs. Public API:
+Validation is single-pass: the `_orig_*` comparison happens inside the same batch before the write, so no second stream and no scratch checkpoints are needed. The casts come from the `table_config` file Start read onto the `Context`, which can't name a framework (`__`) column. Public API:
 
 ```python
 class CastService:
-    def apply(self, df: DataFrame, cfg: TypingConfig, ctx: Context) -> DataFrame
+    def apply(self, df: DataFrame, ctx: Context) -> DataFrame
 ```
 
 ### 3.4 Policies (`dbx_flame.policies`)

@@ -16,7 +16,10 @@ from pyspark.sql.types import (
     TimestampType,
 )
 
+from dbx_flame.context.table_config import TableConfig
+from dbx_flame.output.mechanics import EXPORT_DATE
 from dbx_flame.output.table_config import STATS_COLUMNS, DeltaTableConfig, stats_columns
+from dbx_flame.output.table_metadata import FRAMEWORK_COMMENTS
 
 
 def _schema(*names: str) -> StructType:
@@ -69,17 +72,22 @@ def table(spark):
     spark.sql(f"DROP DATABASE IF EXISTS `{database}` CASCADE")
 
 
-def _ctx(spark, table) -> MagicMock:
+def _ctx(spark, table, table_config: TableConfig | None = None) -> MagicMock:
     ctx = MagicMock()
     ctx.spark = spark
     ctx.target_table = table
-    ctx.config.output.tags = {}
+    ctx.table_config = table_config
     return ctx
 
 
 def _property(spark, table) -> str | None:
     rows = spark.sql(f"SHOW TBLPROPERTIES {table}").collect()
     return {row.key: row.value for row in rows}.get(STATS_COLUMNS)
+
+
+def _comment(spark, table, column: str) -> str | None:
+    field = next(f for f in spark.table(table).schema.fields if f.name == column)
+    return field.metadata.get("comment")
 
 
 def test_the_list_is_set_when_the_write_creates_the_table(spark, table):
@@ -121,13 +129,59 @@ def test_apply_does_nothing_before_the_table_exists(spark, table):
     DeltaTableConfig(ctx).apply()
 
     ctx.logger.info.assert_not_called()
+    ctx.logger.warning.assert_not_called()
 
 
-def test_apply_also_applies_the_task_tags(spark, table, monkeypatch):
-    tagged = MagicMock()
-    monkeypatch.setattr("dbx_flame.output.table_config.apply_tags", tagged)
-    ctx = _ctx(spark, table)
+def test_a_table_config_that_cannot_be_applied_yet_is_warned_about(spark, table):
+    """Not skipped silently: the file names a table that isn't there."""
+    ctx = _ctx(spark, table, TableConfig(comment="Agents."))
 
     DeltaTableConfig(ctx).apply()
 
-    tagged.assert_called_once_with(ctx)
+    assert ctx.logger.warning.call_args.kwargs["name"] == "table_metadata_skipped"
+
+
+def test_apply_also_applies_the_comments_and_tags(spark, table, monkeypatch):
+    applied = MagicMock()
+    monkeypatch.setattr("dbx_flame.output.table_config.apply_metadata", applied)
+    ctx = _ctx(spark, table)
+    spark.createDataFrame([("1",)], "ID string").write.format("delta").saveAsTable(table)
+
+    DeltaTableConfig(ctx).apply()
+
+    applied.assert_called_once_with(ctx, spark.table(table).schema)
+
+
+def test_a_framework_column_is_commented_once_on_a_real_table(spark, table):
+    ctx = _ctx(spark, table)
+    df = spark.createDataFrame([("1", "x")], f"ID string, {EXPORT_DATE} string")
+    df.write.format("delta").options(**DeltaTableConfig(ctx).write_options(df)).saveAsTable(table)
+
+    DeltaTableConfig(ctx).apply()
+    assert _comment(spark, table, EXPORT_DATE) == FRAMEWORK_COMMENTS[EXPORT_DATE]
+
+    ctx.logger.reset_mock()
+    DeltaTableConfig(ctx).apply()
+    ctx.logger.info.assert_not_called()
+
+
+def test_a_column_comment_reaches_a_real_table_as_written(spark, table):
+    """An apostrophe and a backslash survive the trip through the ALTER statement."""
+    text = "The site's code, e.g. A\\B."
+    ctx = _ctx(spark, table, TableConfig(columns=[{"name": "ID", "comment": text}]))
+    spark.createDataFrame([("1",)], "ID string").write.format("delta").saveAsTable(table)
+
+    DeltaTableConfig(ctx).apply()
+
+    assert _comment(spark, table, "ID") == text
+
+
+def test_a_column_schema_evolution_adds_gets_its_comment_on_the_same_run(spark, table):
+    ctx = _ctx(spark, table, TableConfig(columns=[{"name": "REGION", "comment": "Region."}]))
+    spark.createDataFrame([("1",)], "ID string").write.format("delta").saveAsTable(table)
+
+    evolved = spark.createDataFrame([("2", "x")], "ID string, REGION string")
+    evolved.write.format("delta").mode("append").option("mergeSchema", "true").saveAsTable(table)
+    DeltaTableConfig(ctx).apply()
+
+    assert _comment(spark, table, "REGION") == "Region."

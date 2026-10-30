@@ -128,7 +128,8 @@ databricks bundle deploy
 ## Status
 
 Implemented and tested: Start, Pipeline (CSV, JSON and table), Typing, Policies (DQX) and all
-five write verbs. The export task writes a schema's objects to CSV files, with a checksum per
+five write verbs. Each table's `table_config` file keeps its casts, and its Unity Catalog
+comments and tags ([02_config_schema.md](docs/02_config_schema.md#5-table-config-file)). The export task writes a schema's objects to CSV files, with a checksum per
 file and a manifest ([09_export.md](docs/09_export.md)). Not implemented yet: the SAS origin
 and the Gold example view. Status per phase: [06_roadmap.md](docs/06_roadmap.md).
 

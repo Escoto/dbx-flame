@@ -115,9 +115,9 @@ GRANT USE SCHEMA, CREATE TABLE, SELECT, MODIFY
   ON SCHEMA dbx_flame_dev.export_testing TO `<principal>`;
 ```
 
-`APPLY TAG` is there because the framework tags every table it writes. It also sets table
-properties, and only the table owner can do that, so keep each table's tasks running under
-one identity.
+`APPLY TAG` is there because the framework keeps the `table_config` tags on the tables it
+writes. It also sets table properties and comments, and only the table owner can do that,
+so keep each table's tasks running under one identity.
 
 ## 5 · Configure the bundle
 

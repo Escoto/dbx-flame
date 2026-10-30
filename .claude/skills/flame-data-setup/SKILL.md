@@ -140,8 +140,11 @@ B. `docs/03_write_verbs.md` §5–6 has worked examples you can reuse.
 - **JSON envelope**: `source.preprocessors: record_envelope` plus `source.envelope_fields`
   (the keys to lift into columns, e.g. the record ID). The rest of each item stays as JSON
   text under `DATA`, so the provider can reshape it without breaking the load.
-- **Types:** declare them once, in a cast config on the Bronze task. Once a date column is
-  typed, drop its `.format` from Silver settings.
+- **Types:** declare them once, in the Bronze task's `table_config` file. Once a date
+  column is typed, drop its `.format` from Silver settings, and give Silver a file without
+  casts.
+- **Comments and tags:** describe the table and its columns in the same `table_config`
+  file. That is what Genie and Catalog search read; quote tag values (`PII: "no"`).
 - **New columns:** the default `fail_on_new_columns` stops the load.
   `add_new_columns` grows the table, but the run that first meets the column fails and
   must be re-run once.
@@ -181,7 +184,7 @@ A task (Bronze shown; Silver only changes `named_parameters`):
       source.directory: CLAIMS
       source.file_extension: txt          # only if not .csv
       source.options.delimiter: "|"       # only if not ","
-      typing.cast_config: /Workspace/.../claims_cast.yml   # optional
+      table_config: /Workspace/.../CLAIMS_BRONZE.yml   # optional; casts, comments, tags
       output.verb: append
       output.schema_name: bronze
       output.table: CLAIMS
@@ -199,8 +202,8 @@ Silver `named_parameters` by pattern (each adds `source.origin: table`,
 | + deletes file | `source.deletes_table`, `output.deletes.keys`, `output.deletes.event_time.column` |
 | Full snapshots, history | `complete_delta`, `output.snapshot_scope: full`, `output.event_time.column: __EXPORT_DATE` |
 
-Optional files: a cast config (`typing.cast_config`) and a DQX ruleset
-(`policies.checks_file`). Formats are in `docs/02_config_schema.md` §5–6.
+Optional files: a table config (`table_config`: casts, comments and tags) and a DQX
+ruleset (`policies.checks_file`). Formats are in `docs/02_config_schema.md` §5–6.
 
 ## 7. Hand-over
 
@@ -208,7 +211,7 @@ Give the user:
 1. **A one-paragraph summary** in business terms: what Silver will hold, what happens to
    late, missing or deleted records, and what makes a run fail.
 2. **The job YAML**: the Bronze and Silver tasks, `depends_on` in the right order.
-3. **The cast config and ruleset**, if needed.
+3. **The table config and ruleset**, if needed.
 4. **What to agree with the provider**: the file-name timestamp format, export order, no
    blank keys or event times, and how deletes are sent.
 5. **How to test it**: deploy, run with a few sample files, then check the Silver rows

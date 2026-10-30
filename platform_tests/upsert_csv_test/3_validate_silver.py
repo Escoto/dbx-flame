@@ -40,14 +40,14 @@ assert (
 
 assert df.filter(df["__LAST_MODIFIED_DT"].isNull()).count() == 0, "write time missing"
 
-# The framework keeps output.tags on its target.
+# The framework keeps the table_config's tags on its target.
 tags = {
     row.tag_name: row.tag_value
     for row in spark.table(f"`{CATALOG}`.information_schema.table_tags")
     .where((F.lower("schema_name") == SCHEMA) & (F.lower("table_name") == SILVER_TABLE.lower()))
     .collect()
 }
-expected_tags = {"project": "dbx-flame", "environment": sys.argv[3]}
+expected_tags = {"project": "dbx-flame"}
 assert expected_tags.items() <= tags.items(), f"expected tags {expected_tags}, found {tags}"
 
 print("silver validated")

@@ -42,7 +42,7 @@ def prepare(df: DataFrame, ctx: Context) -> DataFrame:
     df = apply_preprocessors(df, ctx)
     df = sanitize_column_names(df, ctx)
     df = apply_rename_patterns(df, ctx.config.source.rename_patterns)
-    df = CastService().apply(df, ctx.config.typing, ctx)
+    df = CastService().apply(df, ctx)
 
     return stamp_anchor(df, ctx)
 

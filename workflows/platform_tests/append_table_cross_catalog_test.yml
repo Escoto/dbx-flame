@@ -16,6 +16,9 @@ generate_script: &generate_script ${workspace.file_path}/platform_tests/append_t
 bronze_check: &bronze_check ${workspace.file_path}/platform_tests/append_table_cross_catalog_test/2_validate_bronze.py
 silver_check: &silver_check ${workspace.file_path}/platform_tests/append_table_cross_catalog_test/3_validate_silver.py
 
+# The comments and tags kept on each table this test writes.
+table_config: &table_config ${workspace.file_path}/workflows/platform_tests/table_configs/platform_test_tags.yml
+
 catalog: &catalog ${var.platform_tests_catalog}
 
 # TODO: @Escoto - Create new source catalog for cross-catalog promotion)
@@ -26,8 +29,7 @@ schema: &schema functional_testing
 
 shared_params: &shared_params
   env: "${bundle.target}"
-  output.tags.project: dbx-flame
-  output.tags.environment: "${bundle.target}"
+  table_config: *table_config
   schema_evolution: fail_on_new_columns
 
 bronze_params: &bronze_params
