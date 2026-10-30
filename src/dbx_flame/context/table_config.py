@@ -133,6 +133,8 @@ def load_table_config(path: str) -> TableConfig:
     except (OSError, yaml.YAMLError) as exc:
         raise TableConfigError([f"table_config '{path}' could not be read: {exc}"]) from exc
 
+    if raw is None:
+        raise TableConfigError([f"table_config '{path}' is empty"])
     if not isinstance(raw, dict):
         raise TableConfigError(
             [f"table_config '{path}' must hold a mapping, got {type(raw).__name__}"]

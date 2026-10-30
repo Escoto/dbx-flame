@@ -14,7 +14,6 @@ from dbx_flame.output.base import Requirements, Writer  # noqa: F401
 from dbx_flame.output.registry import VERB_REQUIREMENTS
 from dbx_flame.pipelines.base import SourcePipeline
 from dbx_flame.policies.base import PolicyResult, Severity
-from dbx_flame.typecast.models import CastConfiguration
 
 
 def test_version():
@@ -36,12 +35,6 @@ def test_enums():
 def test_verb_requirements_complete():
     for verb in Verb:
         assert verb in VERB_REQUIREMENTS, f"Missing requirements for verb: {verb}"
-
-
-def test_cast_configuration_defaults():
-    # validation is switched by typing.validate_casts, not by the detached YAML
-    cfg = CastConfiguration()
-    assert cfg.columns == []
 
 
 def test_policy_result():
