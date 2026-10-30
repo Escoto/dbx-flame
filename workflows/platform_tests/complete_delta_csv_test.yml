@@ -25,6 +25,9 @@ watermark_check: &watermark_check ${workspace.file_path}/platform_tests/complete
 # Every export in the backlog re-sends ID; the gate judges each snapshot on its own.
 checks_file: &checks_file ${workspace.file_path}/workflows/platform_tests/qa_checks/reusable_unique_id_check.yml
 
+# The comments and tags kept on each table this test writes.
+table_config: &table_config ${workspace.file_path}/workflows/platform_tests/table_configs/platform_test_tags.yml
+
 catalog: &catalog ${var.platform_tests_catalog}
 bronze_table: &bronze_table COMPLETE_DELTA_CSV_BRONZE_1
 silver_table: &silver_table COMPLETE_DELTA_CSV_SILVER_1
@@ -33,8 +36,7 @@ schema: &schema functional_testing
 shared_params: &shared_params
   catalog: *catalog
   env: "${bundle.target}"
-  output.tags.project: dbx-flame
-  output.tags.environment: "${bundle.target}"
+  table_config: *table_config
   metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
   schema_evolution: fail_on_new_columns
 

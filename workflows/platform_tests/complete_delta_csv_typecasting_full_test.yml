@@ -29,8 +29,11 @@ bronze_check: &bronze_check ${workspace.file_path}/platform_tests/complete_delta
 silver_check: &silver_check ${workspace.file_path}/platform_tests/complete_delta_csv_typecasting_full_test/3_validate_silver.py
 
 # Shared with every study-milestones test: the types are a property of the dataset,
-# not of any one workflow.
-cast_config: &cast_config ${workspace.file_path}/workflows/platform_tests/types/studymilestones.yml
+# not of any one workflow. Bronze applies them; Silver reads them already typed.
+studymilestones: &studymilestones ${workspace.file_path}/workflows/platform_tests/table_configs/studymilestones.yml
+
+# The comments and tags kept on each table this test writes.
+table_config: &table_config ${workspace.file_path}/workflows/platform_tests/table_configs/platform_test_tags.yml
 
 catalog: &catalog ${var.platform_tests_catalog}
 bronze_table: &bronze_table COMPLETE_DELTA_STUDYMILESTONES_BRONZE_3
@@ -43,8 +46,7 @@ milestone_keys: &milestone_keys STUDYID, SUBSTUDYID, PART, COHORT, ARM, MILESTON
 shared_params: &shared_params
   catalog: *catalog
   env: "${bundle.target}"
-  output.tags.project: dbx-flame
-  output.tags.environment: "${bundle.target}"
+  table_config: *table_config
   metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
   schema_evolution: fail_on_new_columns
 
@@ -55,7 +57,7 @@ bronze_params: &bronze_params
   source.path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/inbound/
   source.directory: COMPLETE_DELTA_STUDYMILESTONES_SOURCE_3
   # Types are applied as the data lands, so bronze is already conformed.
-  typing.cast_config: *cast_config
+  table_config: *studymilestones
   output.verb: append
   output.schema_name: *schema
   output.table: *bronze_table

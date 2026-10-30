@@ -1,0 +1,4 @@
+# The tags every platform test keeps on its tables. A table that also needs casts has
+# its own file, which repeats these tags.
+tags:
+  project: dbx-flame

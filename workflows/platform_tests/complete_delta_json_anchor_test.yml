@@ -27,6 +27,9 @@ silver_steady_check: &silver_steady_check ${workspace.file_path}/platform_tests/
 silver_resync_check: &silver_resync_check ${workspace.file_path}/platform_tests/complete_delta_json_anchor_test/3_validate_silver_resync.py
 silver_final_check: &silver_final_check ${workspace.file_path}/platform_tests/complete_delta_json_anchor_test/4_validate_silver_final.py
 
+# The comments and tags kept on each table this test writes.
+table_config: &table_config ${workspace.file_path}/workflows/platform_tests/table_configs/platform_test_tags.yml
+
 catalog: &catalog ${var.platform_tests_catalog}
 schema: &schema functional_testing
 
@@ -37,8 +40,7 @@ silver_table: &silver_table ADDRESS_ANCHOR_SILVER_1
 shared_params: &shared_params
   catalog: *catalog
   env: "${bundle.target}"
-  output.tags.project: dbx-flame
-  output.tags.environment: "${bundle.target}"
+  table_config: *table_config
   metadata_path: /Volumes/${var.platform_tests_catalog}_${bundle.target}/functional_testing/source_data/metadata/
   schema_evolution: fail_on_new_columns
 
