@@ -28,9 +28,11 @@ from dbx_flame.output.mechanics import (
     log_rows_written,
     merge_schema,
     LAST_MODIFIED,
+    RECORD_HASH,
     open_history,
     record_step,
     require_creatable,
+    same_content,
     require_no_new_columns,
     stamp_written,
     step_start,
@@ -119,7 +121,7 @@ def merge_history(df: DataFrame, ctx: Context, snapshot: Optional[datetime] = No
     # Only COMPLETE_DELTA reaches this: SCD2 rejects snapshot_scope=full at Start.
     if ctx.config.output.snapshot_scope == SnapshotScope.FULL:
         assert snapshot  # COMPLETE_DELTA passes each snapshot it replays
-        _expire_all_current(ctx, snapshot)
+        _expire_absent_or_changed(prepared, ctx, snapshot)
 
     # Cached because both statements below read it, and the first one changes the
     # table the anti-filter derives from: without this the insert would be computed
@@ -144,35 +146,48 @@ def _create(df: DataFrame, ctx: Context) -> None:
     log_rows_written(ctx, event=_EVENT, source=_SOURCE)
 
 
-def _expire_all_current(ctx: Context, snapshot: datetime) -> None:
-    """snapshot_scope=full: expire everything before merging the snapshot.
+def _expire_absent_or_changed(df: DataFrame, ctx: Context, snapshot: datetime) -> None:
+    """snapshot_scope=full: expire every current record the snapshot dropped or changed.
 
     The source re-asserts its complete dataset each time, so a record it no longer
-    contains is gone. Expiring first turns that absence into an implicit deletion: the
-    snapshot re-inserts what it still carries, and what it dropped stays closed.
+    contains is gone: its absence is an implicit deletion. A changed record is expired
+    here too, whatever its event time, and the snapshot re-inserts it. An unchanged one
+    stays open, so a full export doesn't re-version the whole table.
 
     Rows close at the export's own time, not the run's: that is the latest a dropped
     record can have left the source, and it is where a re-asserted one reopens.
     """
-    DeltaTable.forName(ctx.spark, ctx.target_table).update(
-        condition=F.col(f"`{CURRENT_FLAG}`") == CURRENT,
-        set={
-            f"`{CURRENT_FLAG}`": F.lit(EXPIRED),
-            f"`{END_DATE}`": F.lit(snapshot),
-            f"`{LAST_MODIFIED}`": written(ctx),
-        },
+    current = F.col(f"t.`{CURRENT_FLAG}`") == CURRENT
+    expire = {
+        f"`{CURRENT_FLAG}`": F.lit(EXPIRED),
+        f"`{END_DATE}`": F.lit(snapshot),
+        f"`{LAST_MODIFIED}`": written(ctx),
+    }
+    keys = ctx.config.output.keys
+    snapshot_rows = df.select(*[F.col(f"`{key}`") for key in keys], F.col(f"`{RECORD_HASH}`"))
+
+    target = DeltaTable.forName(ctx.spark, ctx.target_table)
+    (
+        target.alias("t")
+        .merge(snapshot_rows.alias("s"), key_condition(keys, "s", "t"))
+        .whenMatchedUpdate(condition=current & ~same_content("s", "t"), set=expire)
+        .whenNotMatchedBySourceUpdate(condition=current, set=expire)
+        .execute()
     )
 
 
 def _drop_already_current(df: DataFrame, ctx: Context) -> DataFrame:
-    """Drop rows the target already holds at that version or a newer one.
+    """Drop rows whose current version is unchanged, or at that event time or a newer one.
 
-    This is what makes a re-run a no-op and a late or duplicated file harmless. It is a
-    left-anti join rather than SQL built against a temp view.
+    An unchanged record opens no version whatever its event time, so a full export of a
+    table with no change date doesn't re-version every row. The event time makes a re-run
+    a no-op and a late or duplicated file harmless. It is a left-anti join rather than
+    SQL built against a temp view.
     """
     current = ctx.spark.table(ctx.target_table).filter(F.col(f"`{CURRENT_FLAG}`") == CURRENT)
     keys = key_condition(ctx.config.output.keys, "s", "t")
-    condition = keys & (event_time(ctx, "s") <= event_time(ctx, "t"))
+    held = same_content("s", "t") | (event_time(ctx, "s") <= event_time(ctx, "t"))
+    condition = keys & held
     return df.alias("s").join(current.alias("t"), condition, "left_anti")
 
 

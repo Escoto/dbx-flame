@@ -15,7 +15,7 @@ from dbx_flame.output.mechanics import (
     LAST_MODIFIED,
     START_DATE,
 )
-from dbx_flame.pipelines.enrichment import ANCHOR_DT, SOURCE
+from dbx_flame.pipelines.enrichment import ANCHOR_DT, RECORD_HASH, SOURCE
 
 if TYPE_CHECKING:
     from pyspark.sql import Row
@@ -35,6 +35,10 @@ FRAMEWORK_COMMENTS: dict[str, str] = {
     SOURCE: (
         "Where this record was read: FILE:<path>, or TABLE:<catalog>.<schema>.<table>"
         "@<read time>. Set once, never overwritten."
+    ),
+    RECORD_HASH: (
+        "sha256 of this record's values where it entered the framework, after rename and "
+        "cast. A new hash for a key is a changed record. Set once, never overwritten."
     ),
     ANCHOR_DT: "The source's own date for this record (source.anchor_dt), as a timestamp.",
     LAST_MODIFIED: (

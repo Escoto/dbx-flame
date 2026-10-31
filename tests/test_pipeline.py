@@ -87,6 +87,7 @@ def test_a_file_origin_gets_provenance(spark, tmp_path):
         "FULL_NAME",
         "__SOURCE",
         "__EXPORT_DATE",
+        "__RECORD_HASH",
     ]
     assert row["__EXPORT_DATE"] == datetime(2024, 1, 15, 10, 30)
     assert row["AGENT_ID"] == "1"
@@ -106,16 +107,36 @@ def test_provenance_is_attached_before_the_stream_not_inside_it(spark, tmp_path)
 
 
 def test_a_table_origin_keeps_the_provenance_it_arrived_with(spark):
-    """Re-deriving it would need _metadata.file_path, which a table read does not have."""
+    """Re-deriving it would need _metadata.file_path, which a table read does not have.
+
+    The hash too: a later layer's rename or cast must not change the record's fingerprint.
+    """
     df = spark.createDataFrame(
-        [("1", "alice", datetime(2024, 1, 15))],
-        "ID string, NAME string, __EXPORT_DATE timestamp",
+        [("1", "alice", datetime(2024, 1, 15), "upstream")],
+        "ID string, NAME string, __EXPORT_DATE timestamp, __RECORD_HASH string",
     )
 
-    result = prepare(df, _ctx(spark, origin=Origin.TABLE))
+    result = prepare(df, _ctx(spark, origin=Origin.TABLE, rename_patterns=["^NAME$=FULL_NAME"]))
 
-    assert result.columns == ["ID", "NAME", "__EXPORT_DATE"]
-    assert result.collect()[0]["__EXPORT_DATE"] == datetime(2024, 1, 15)
+    assert result.columns == ["ID", "FULL_NAME", "__EXPORT_DATE", "__RECORD_HASH"]
+    row = result.collect()[0]
+    assert row["__EXPORT_DATE"] == datetime(2024, 1, 15)
+    assert row["__RECORD_HASH"] == "upstream"
+
+
+def test_the_hash_is_taken_after_the_rename_so_the_stored_row_reproduces_it(spark):
+    """An auditor holding only the stored row, with its final names, gets the same hash.
+
+    The rename flips the sort order (A_NAME < B_ID, but ID < NAME), so a hash ordered by
+    the names before the rename would not match.
+    """
+    raw = spark.createDataFrame([("alice", "1")], "A_NAME string, B_ID string")
+    stored = spark.createDataFrame([("1", "alice")], "ID string, NAME string")
+
+    hashed = prepare(raw, _ctx(spark, rename_patterns=["^[AB]_="]))
+    again = prepare(stored, _ctx(spark))
+
+    assert hashed.collect()[0]["__RECORD_HASH"] == again.collect()[0]["__RECORD_HASH"]
 
 
 def test_rename_patterns_run_after_sanitization(spark):
@@ -123,7 +144,7 @@ def test_rename_patterns_run_after_sanitization(spark):
 
     result = prepare(df, _ctx(spark, origin=Origin.TABLE, rename_patterns=["__[Vv]$="]))
 
-    assert result.columns == ["AGENT_ID"]
+    assert result.columns == ["AGENT_ID", "__RECORD_HASH"]
 
 
 def test_a_batch_source_writes_directly(spark):
@@ -136,7 +157,7 @@ def test_a_batch_source_writes_directly(spark):
             run_pipeline(ctx)
 
     writer.write.assert_called_once()
-    assert writer.write.call_args.args[0].columns == ["ID"]
+    assert writer.write.call_args.args[0].columns == ["ID", "__RECORD_HASH"]
 
 
 def test_a_streaming_source_is_driven_and_awaited():

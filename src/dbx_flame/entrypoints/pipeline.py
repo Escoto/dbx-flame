@@ -18,6 +18,7 @@ from dbx_flame.pipelines.enrichment import (
     reject_unstamped,
     sanitize_column_names,
     stamp_anchor,
+    stamp_record_hash,
 )
 from dbx_flame.pipelines.preprocessors import apply_preprocessors
 from dbx_flame.pipelines.registry import SOURCES
@@ -43,6 +44,7 @@ def prepare(df: DataFrame, ctx: Context) -> DataFrame:
     df = sanitize_column_names(df, ctx)
     df = apply_rename_patterns(df, ctx.config.source.rename_patterns)
     df = CastService().apply(df, ctx)
+    df = stamp_record_hash(df, ctx)
 
     return stamp_anchor(df, ctx)
 

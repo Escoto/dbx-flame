@@ -25,6 +25,7 @@ BRONZE_COLUMNS = {
     "CREATED_DATE",
     "__LAST_MODIFIED_DT",
     "__SOURCE",
+    "__RECORD_HASH",
     "__EXPORT_DATE",
 }
 
@@ -34,6 +35,7 @@ SILVER_COLUMNS = {
     "SOURCE_SYSTEM",
     "CREATED_DATE",
     "__SOURCE",
+    "__RECORD_HASH",
     "__EXPORT_DATE",
     "__LAST_MODIFIED_DT",
 }

@@ -39,12 +39,13 @@ step, and the traps that a valid config doesn't rule out. The parameters themsel
 
 ## 2. Notes on every row
 
-- **Keyed verbs detect change by `output.event_time.column`**, never by content. Point it at
-  a real change date from the source; under `delta_read` it is usually the column the read
-  follows. With `__EXPORT_DATE`, every export or full read re-versions every unchanged row
-  in SCD2 and COMPLETE_DELTA, and rewrites it in UPSERT (gh #51).
-- **COMPLETE_DELTA with `snapshot_scope: full` re-versions every row of each snapshot**,
-  changed or not, so history grows by the table's size per export (gh #51).
+- **Keyed verbs detect change by `__RECORD_HASH`**, the record's content, and order versions
+  by `output.event_time.column`. `__EXPORT_DATE` is a sound event time for a source with no
+  change date: an unchanged record opens no version, whatever export it arrives in
+  ([03_write_verbs.md](03_write_verbs.md) §0).
+- **Feed each Silver table by one path.** Inbound → Silver hashes after the Silver task's
+  rename and cast, Bronze → Silver carries the hash the Bronze task stamped. The two can
+  differ for the same file row, so a table that switches path re-versions each key once.
 - **COMPLETE_DELTA with `snapshot_scope: full` needs whole exports.** It retires every key
   the newest export omits, so its source must hold each export whole: files, or a Bronze
   filled by APPEND from files or `full_read`. A Bronze filled by `delta_read`, an anchored

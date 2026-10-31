@@ -34,6 +34,7 @@ from dbx_flame.output.delta.complete_delta import CompleteDeltaWriter
 from dbx_flame.output.delta.complete_delta import _at as snapshot_rows
 from dbx_flame.output.delta.scd2 import Scd2Writer
 from dbx_flame.output.delta.upsert import UpsertWriter
+from dbx_flame.pipelines.enrichment import _record_hash
 from dbx_flame.policies.base import PolicyViolation
 from dbx_flame.policies.platform import PlatformPolicyViolation
 
@@ -124,7 +125,12 @@ def _at(day: int, hour: int = 0) -> datetime:
 
 def _subjects(spark, rows, source="FILE:/Volumes/in/subjects/subjects.csv"):
     """Subjects as a writer receives them: provenance is stamped where data enters."""
-    return spark.createDataFrame(rows, SUBJECTS).withColumn("__SOURCE", F.lit(source))
+    return _hashed(spark.createDataFrame(rows, SUBJECTS).withColumn("__SOURCE", F.lit(source)))
+
+
+def _hashed(df):
+    """Hashed as the pipeline hashes a row where it enters, before any writer sees it."""
+    return df.withColumn("__RECORD_HASH", _record_hash(df))
 
 
 FIRST_RUN = datetime(2030, 1, 1)
@@ -312,9 +318,11 @@ def _file(day: int, name: str = "subjects") -> str:
 
 
 def _snapshot_subjects(spark, rows):
-    return spark.createDataFrame(
-        [(*row[:3], _file(row[3]), _at(row[3], 12)) for row in rows],
-        SNAPSHOT_SUBJECTS,
+    return _hashed(
+        spark.createDataFrame(
+            [(*row[:3], _file(row[3]), _at(row[3], 12)) for row in rows],
+            SNAPSHOT_SUBJECTS,
+        )
     )
 
 
@@ -368,8 +376,8 @@ def test_complete_delta_applies_the_deletes_feed_of_each_snapshot(spark, databas
             )
         },
     )
-    spark.createDataFrame(
-        [("B", "2026-01-02 00:00:00", _file(2), _at(2, 12))], DELETIONS
+    _hashed(
+        spark.createDataFrame([("B", "2026-01-02 00:00:00", _file(2), _at(2, 12))], DELETIONS)
     ).write.format("delta").saveAsTable(f"`{database}`.`DELETIONS`")
 
     updates = _snapshot_subjects(
@@ -438,7 +446,7 @@ def test_complete_delta_stamps_every_version_a_delete_flags(spark, database):
         },
     )
     deletions = f"`{database}`.`DELETIONS`"
-    spark.createDataFrame([], DELETIONS).write.format("delta").saveAsTable(deletions)
+    _hashed(spark.createDataFrame([], DELETIONS)).write.format("delta").saveAsTable(deletions)
     writer = CompleteDeltaWriter()
     updates = [
         ("A", "v1", "2026-01-01 00:00:00", 1),
@@ -447,8 +455,8 @@ def test_complete_delta_stamps_every_version_a_delete_flags(spark, database):
     ]
     writer.write(_snapshot_subjects(spark, updates), replace(ctx, write_time=FIRST_RUN))
 
-    spark.createDataFrame(
-        [("B", "2026-01-03 00:00:00", _file(3), _at(3, 12))], DELETIONS
+    _hashed(
+        spark.createDataFrame([("B", "2026-01-03 00:00:00", _file(3), _at(3, 12))], DELETIONS)
     ).write.format("delta").mode("append").saveAsTable(deletions)
     writer.write(_snapshot_subjects(spark, []), replace(ctx, write_time=SECOND_RUN))
 
@@ -513,12 +521,20 @@ def test_complete_delta_creates_an_empty_target_when_nothing_is_pending(spark, d
 def test_complete_delta_splits_snapshots_on_the_export_date_alone(spark, database):
     """Bronze already parsed the stamp; the file name is not read again here."""
     ctx = _complete_delta_ctx(spark, database)
-    updates = spark.createDataFrame(
-        [
-            ("A", "v1", "2026-01-01 00:00:00", "/in/subjects_2026-01-01T12:00:00.csv", _at(1, 12)),
-            ("A", "v2", "2026-01-02 00:00:00", "/in/no_stamp_at_all.csv", _at(2, 12)),
-        ],
-        SNAPSHOT_SUBJECTS,
+    updates = _hashed(
+        spark.createDataFrame(
+            [
+                (
+                    "A",
+                    "v1",
+                    "2026-01-01 00:00:00",
+                    "/in/subjects_2026-01-01T12:00:00.csv",
+                    _at(1, 12),
+                ),
+                ("A", "v2", "2026-01-02 00:00:00", "/in/no_stamp_at_all.csv", _at(2, 12)),
+            ],
+            SNAPSHOT_SUBJECTS,
+        )
     )
 
     CompleteDeltaWriter().write(updates, ctx)
@@ -593,7 +609,7 @@ def test_complete_delta_refuses_a_deletes_feed_with_a_null_delete_time(spark, da
             )
         },
     )
-    spark.createDataFrame([("B", None, _file(2), _at(2, 12))], DELETIONS).write.format(
+    _hashed(spark.createDataFrame([("B", None, _file(2), _at(2, 12))], DELETIONS)).write.format(
         "delta"
     ).saveAsTable(f"`{database}`.`DELETIONS`")
     updates = _snapshot_subjects(spark, [("B", "v1", "2026-01-01 00:00:00", 1)])
@@ -698,3 +714,98 @@ def test_complete_delta_full_scope_does_not_judge_superseded_exports(spark, data
 
     assert _history(spark, database) == {("A", "v2", _at(2), None, "Y", "N")}
     assert len(_passed(ctx)) == 1
+
+
+# --- change detection by __RECORD_HASH --------------------------------------
+
+
+def test_scd2_opens_no_version_for_an_unchanged_record_whatever_its_event_time(spark, database):
+    """gh #51: a full export with no change date moves only __EXPORT_DATE, never content."""
+    ctx = _ctx(spark, database, event_time=EventTimeConfig(column="__EXPORT_DATE"))
+    writer = Scd2Writer()
+    unchanged = ("A", "v1", "2026-01-01 00:00:00")
+
+    writer.write(_snapshot_subjects(spark, [(*unchanged, 1)]), replace(ctx, write_time=FIRST_RUN))
+    writer.write(_snapshot_subjects(spark, [(*unchanged, 2)]), replace(ctx, write_time=SECOND_RUN))
+
+    assert _stamps(spark, database) == {("A", "v1", "Y", "N", FIRST_RUN)}
+
+
+def test_scd2_versions_a_changed_record_at_its_export(spark, database):
+    ctx = _ctx(spark, database, event_time=EventTimeConfig(column="__EXPORT_DATE"))
+    writer = Scd2Writer()
+
+    writer.write(_snapshot_subjects(spark, [("A", "v1", "2026-01-01 00:00:00", 1)]), ctx)
+    writer.write(_snapshot_subjects(spark, [("A", "v2", "2026-01-01 00:00:00", 2)]), ctx)
+
+    assert _history(spark, database) == {
+        ("A", "v1", _at(1, 12), _at(2, 12), "N", "N"),
+        ("A", "v2", _at(2, 12), None, "Y", "N"),
+    }
+
+
+def test_complete_delta_full_scope_leaves_an_unchanged_record_untouched(spark, database):
+    """Only what the snapshot dropped or changed closes; A is re-asserted as it was."""
+    ctx = _complete_delta_ctx(spark, database, output={"snapshot_scope": SnapshotScope.FULL})
+    writer = CompleteDeltaWriter()
+    first = [
+        ("A", "v1", "2026-01-01 00:00:00", 1),
+        ("B", "v1", "2026-01-01 00:00:00", 1),
+        ("C", "v1", "2026-01-01 00:00:00", 1),
+    ]
+    writer.write(_snapshot_subjects(spark, first), replace(ctx, write_time=FIRST_RUN))
+
+    second = [("A", "v1", "2026-01-01 00:00:00", 2), ("B", "v2", "2026-01-02 00:00:00", 2)]
+    writer.write(_snapshot_subjects(spark, second), replace(ctx, write_time=SECOND_RUN))
+
+    assert _history(spark, database) == {
+        ("A", "v1", _at(1), None, "Y", "N"),
+        ("B", "v1", _at(1), _at(2, 12), "N", "N"),
+        ("B", "v2", _at(2), None, "Y", "N"),
+        ("C", "v1", _at(1), _at(2, 12), "N", "N"),
+    }
+    assert ("A", "v1", "Y", "N", FIRST_RUN) in _stamps(spark, database)
+
+
+def test_complete_delta_full_scope_expires_a_changed_record_whatever_its_event_time(
+    spark, database
+):
+    """The snapshot asserts each record's state: A changed, though its date didn't move."""
+    ctx = _complete_delta_ctx(spark, database, output={"snapshot_scope": SnapshotScope.FULL})
+    writer = CompleteDeltaWriter()
+
+    writer.write(_snapshot_subjects(spark, [("A", "v1", "2026-01-01 00:00:00", 1)]), ctx)
+    writer.write(_snapshot_subjects(spark, [("A", "v2", "2026-01-01 00:00:00", 2)]), ctx)
+
+    assert _history(spark, database) == {
+        ("A", "v1", _at(1), _at(2, 12), "N", "N"),
+        ("A", "v2", _at(1), None, "Y", "N"),
+    }
+
+
+def test_complete_delta_full_scope_reopens_a_record_that_returns_unchanged(spark, database):
+    """Compared with the current version only: B's closed v1 is history, not its state."""
+    ctx = _complete_delta_ctx(spark, database, output={"snapshot_scope": SnapshotScope.FULL})
+    writer = CompleteDeltaWriter()
+    a, b = ("A", "v1", "2026-01-01 00:00:00"), ("B", "v1", "2026-01-01 00:00:00")
+
+    writer.write(_snapshot_subjects(spark, [(*a, 1), (*b, 1)]), ctx)
+    writer.write(_snapshot_subjects(spark, [(*a, 2)]), ctx)
+    writer.write(_snapshot_subjects(spark, [(*a, 3), (*b, 3)]), ctx)
+
+    assert _history(spark, database) == {
+        ("A", "v1", _at(1), None, "Y", "N"),
+        ("B", "v1", _at(1), _at(2, 12), "N", "N"),
+        ("B", "v1", _at(1), None, "Y", "N"),
+    }
+
+
+def test_promotion_keeps_the_hash_a_record_entered_with(spark, database):
+    ctx = _ctx(spark, database)
+    batch = _subjects(spark, [("A", "v1", "2026-01-01 00:00:00")])
+    entered = batch.collect()[0]["__RECORD_HASH"]
+
+    Scd2Writer().write(batch, ctx)
+
+    stored = spark.table(f"`{database}`.`TARGET`").collect()[0]
+    assert stored["__RECORD_HASH"] == entered

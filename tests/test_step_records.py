@@ -28,6 +28,7 @@ from dbx_flame.output.delta.full import FullWriter
 from dbx_flame.output.delta.scd2 import Scd2Writer
 from dbx_flame.output.delta.upsert import UpsertWriter
 from dbx_flame.output.mechanics import table_version
+from dbx_flame.pipelines.enrichment import _record_hash
 
 RUN = RunIdentity(
     workflow_id="wf-1",
@@ -95,23 +96,37 @@ def _file(day: int, name: str = "subjects") -> str:
 
 def _exports(spark, rows):
     """(id, payload, day) rows, each from the export of that day."""
-    return spark.createDataFrame(
-        [
-            (key, payload, f"2026-01-0{day} 00:00:00", _file(day), datetime(2026, 1, day, 12))
-            for key, payload, day in rows
-        ],
-        EXPORTS,
+    return _hashed(
+        spark.createDataFrame(
+            [
+                (key, payload, f"2026-01-0{day} 00:00:00", _file(day), datetime(2026, 1, day, 12))
+                for key, payload, day in rows
+            ],
+            EXPORTS,
+        )
     )
+
+
+def _hashed(df):
+    """Hashed as the pipeline hashes a row where it enters, before any writer sees it."""
+    return df.withColumn("__RECORD_HASH", _record_hash(df))
 
 
 def _deletions(spark, database, rows):
     """(id, day) delete records, each from the deletes export of that day."""
-    spark.createDataFrame(
-        [
-            (key, f"2026-01-0{day} 00:00:00", _file(day, "deletions"), datetime(2026, 1, day, 12))
-            for key, day in rows
-        ],
-        DELETIONS,
+    _hashed(
+        spark.createDataFrame(
+            [
+                (
+                    key,
+                    f"2026-01-0{day} 00:00:00",
+                    _file(day, "deletions"),
+                    datetime(2026, 1, day, 12),
+                )
+                for key, day in rows
+            ],
+            DELETIONS,
+        )
     ).write.format("delta").saveAsTable(f"`{database}`.`DELETIONS`")
 
 
