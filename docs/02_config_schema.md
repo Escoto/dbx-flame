@@ -55,7 +55,7 @@ source.anchor_dt.format: "yyyy-MM-dd HH:mm:ss"  # optional; only when the column
 source.snapshot_time_pattern: datetime  # enum: datetime (default, 20260930103500) | iso (2026-09-30T10:35:00)
 source.preprocessors: ""                # ordered list of registered names, e.g. "record_envelope"
 source.envelope_fields: "uri, status"   # list; paired with the record_envelope pre-processor
-source.rename_patterns: ""              # list of regex=replacement pairs, e.g. "__[Vv]$="
+source.rename_patterns: ""              # list of regex=replacement pairs, e.g. "__[Vv]$="; never renames a __ column
 source.options.header: true             # csv only (default true)
 source.options.delimiter: ","           # csv only (default ",")
 source.options.quote: '"'               # csv only (default "")
@@ -128,14 +128,14 @@ Notes:
     or TIMESTAMP_NTZ, compared as it is so the filter reaches the source; `format` is
     rejected. FULL refuses it, and Start rejects it with `output.snapshot_scope: full` or
     a deletes table.
-- Whether a table is ours is decided by its columns, `__SOURCE` and `__EXPORT_DATE`, before
+- Whether a table is ours is decided by its columns, `__SOURCE`, `__EXPORT_DATE` and `__RECORD_HASH`, before
   anything is read. A violation fails the run as a [platform policy](04_policies.md#9-platform-policies):
 
   | The source table carries | `checkpoint` · `watermark` | `full_read` · `delta_read` |
   |---|---|---|
-  | both (a table we stamped) | read as is; provenance travels unchanged | `stamped_table`: it would stamp the exports it holds again |
-  | neither (a table we didn't create) | `unstamped_table`: an increment can't be stamped as a snapshot | stamped with the read time |
-  | only one | `malformed_table` (incomplete metadata) | `malformed_table` |
+  | all (a table we stamped) | read as is; provenance travels unchanged | `stamped_table`: it would stamp the exports it holds again |
+  | none (a table we didn't create) | `unstamped_table`: an increment can't be stamped as a snapshot | stamped with the read time, and hashed |
+  | only some (e.g. written before `__RECORD_HASH`) | `malformed_table` (incomplete metadata) | `malformed_table` |
 - `source.snapshot_time_pattern` is the export stamp agreed with the source, and Bronze
   parses `__EXPORT_DATE` from it. Only the configured pattern is read. A file whose name
   doesn't carry it fails the run before anything from its batch is written, so it never

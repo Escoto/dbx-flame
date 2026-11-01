@@ -29,10 +29,11 @@ RUN = RunIdentity(
     task_run_id="taskrun-1",
 )
 
-SCHEMA = "ID string, __SOURCE string, __EXPORT_DATE timestamp"
+SCHEMA = "ID string, __SOURCE string, __EXPORT_DATE timestamp, __RECORD_HASH string"
 
 # Provenance a Bronze we stamped carries; its value is irrelevant to every read here.
 _FILE = "FILE:/Volumes/in/updates/UPDATES_20240101000000.csv"
+_HASH = "0" * 64
 
 READ_TIME = datetime(2026, 10, 9, 12, 0)
 
@@ -46,8 +47,8 @@ def database(spark):
 
 
 def _with_source(rows):
-    """__SOURCE sits just before __EXPORT_DATE, the last column of every stamped schema."""
-    return [row[:-1] + (_FILE,) + row[-1:] for row in rows]
+    """__SOURCE sits just before __EXPORT_DATE, and __RECORD_HASH ends every stamped schema."""
+    return [row[:-1] + (_FILE,) + row[-1:] + (_HASH,) for row in rows]
 
 
 def _write(spark, database, table, rows):
@@ -258,7 +259,10 @@ def test_a_delete_on_the_source_does_not_break_the_stream(spark, database, tmp_p
     assert spark.read.format("delta").load(sink).count() == 2
 
 
-SNAPSHOT_SCHEMA = "ID string, __ANCHOR_DT timestamp, __SOURCE string, __EXPORT_DATE timestamp"
+SNAPSHOT_SCHEMA = (
+    "ID string, __ANCHOR_DT timestamp, __SOURCE string, __EXPORT_DATE timestamp, "
+    "__RECORD_HASH string"
+)
 
 
 def _snapshot(spark, database, table, rows, mode="append", schema=SNAPSHOT_SCHEMA):
@@ -427,6 +431,19 @@ def test_a_table_with_part_of_our_metadata_is_malformed(
     ctx = _context(spark, database, strategy)
 
     with pytest.raises(PlatformPolicyViolation, match=f"incomplete metadata: missing {missing}"):
+        TableSource().read(ctx)
+    assert ctx.logger.error.call_args.kwargs["name"] == "malformed_table"
+
+
+def test_a_table_stamped_without_a_record_hash_is_malformed(spark, database):
+    """Written before the hash existed: promoting it would compare against no hash at all."""
+    schema = "ID string, __SOURCE string, __EXPORT_DATE timestamp"
+    _foreign(spark, database, "UPDATES", [("1", _FILE, datetime(2024, 1, 2))], schema=schema)
+    ctx = _context(spark, database, IncrementStrategy.WATERMARK)
+
+    with pytest.raises(
+        PlatformPolicyViolation, match="incomplete metadata: missing __RECORD_HASH$"
+    ):
         TableSource().read(ctx)
     assert ctx.logger.error.call_args.kwargs["name"] == "malformed_table"
 

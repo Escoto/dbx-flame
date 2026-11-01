@@ -13,7 +13,7 @@ from pyspark.sql import Window
 from pyspark.sql import functions as F
 
 from dbx_flame.context.config import EventTimeConfig, SchemaEvolution
-from dbx_flame.pipelines.enrichment import SOURCE
+from dbx_flame.pipelines.enrichment import RECORD_HASH, SOURCE
 from dbx_flame.policies.platform import PlatformPolicy, violate
 
 if TYPE_CHECKING:
@@ -293,6 +293,14 @@ def key_condition(keys: list[str], source: str, target: str) -> Column:
         and_,
         [F.col(f"{source}.`{key}`") == F.col(f"{target}.`{key}`") for key in keys],
     )
+
+
+def same_content(source: str, target: str) -> Column:
+    """Whether two rows carry the same record: the one test of change the keyed verbs share.
+
+    The hash is stamped where the record entered, so neither side is recomputed here.
+    """
+    return F.col(f"{source}.`{RECORD_HASH}`") == F.col(f"{target}.`{RECORD_HASH}`")
 
 
 def open_history(df: DataFrame, start: Column) -> DataFrame:

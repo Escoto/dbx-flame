@@ -27,6 +27,7 @@ from dbx_flame.output.delta.append import AppendWriter
 from dbx_flame.output.delta.full import FullWriter
 from dbx_flame.output.delta.upsert import UpsertWriter
 from dbx_flame.output.mechanics import schema_auto_merge, table_version
+from dbx_flame.pipelines.enrichment import _record_hash
 from dbx_flame.policies.platform import PlatformPolicyViolation
 
 RUN = RunIdentity(
@@ -80,7 +81,12 @@ def _rows(spark, database):
 
 def _people(spark, rows, schema=PEOPLE, source="FILE:/in/people.csv"):
     """People rows as a writer receives them: provenance is stamped where data enters."""
-    return spark.createDataFrame(rows, schema).withColumn("__SOURCE", F.lit(source))
+    return _hashed(spark.createDataFrame(rows, schema).withColumn("__SOURCE", F.lit(source)))
+
+
+def _hashed(df):
+    """Hashed as the pipeline hashes a row where it enters, before any writer sees it."""
+    return df.withColumn("__RECORD_HASH", _record_hash(df))
 
 
 FIRST_RUN = datetime(2030, 1, 1)
@@ -392,3 +398,17 @@ def test_upsert_refuses_a_new_column_when_evolution_is_off(spark, database):
         UpsertWriter().write(wider, ctx)
 
     assert "NICKNAME" not in spark.table(f"`{database}`.`TARGET`").columns
+
+
+def test_upsert_leaves_an_unchanged_record_as_it_is(spark, database):
+    """No rewrite: the row keeps its stamp, even when the batch would otherwise win."""
+    ctx = _upsert_ctx(spark, database, event_time=None, dedup=DedupConfig(enabled=False))
+    writer = UpsertWriter()
+    writer.write(
+        _people(spark, [("1", "alice", "2024-06-01")]), replace(ctx, write_time=FIRST_RUN)
+    )
+
+    same = [("1", "alice", "2024-06-01"), ("2", "bob", "2024-06-01")]
+    writer.write(_people(spark, same), replace(ctx, write_time=SECOND_RUN))
+
+    assert _stamps(spark, database) == {("1", "alice", FIRST_RUN), ("2", "bob", SECOND_RUN)}

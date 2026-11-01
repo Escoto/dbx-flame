@@ -19,6 +19,7 @@ from dbx_flame.output.mechanics import (
     require_no_new_columns,
     schema_auto_merge,
     require_creatable,
+    same_content,
     stamp_written,
     step_start,
 )
@@ -69,12 +70,11 @@ class UpsertWriter:
         matched = key_condition(ctx.config.output.keys, "s", "t")
         merge = target.alias("t").merge(prepared.alias("s"), matched)
 
+        # An unchanged record is left as it is, so its row isn't rewritten.
+        changed = ~same_content("s", "t")
         # `if newer` would evaluate the Column's truthiness, which raises.
         newer = _newer_than_target(ctx)
-        if newer is None:
-            merge = merge.whenMatchedUpdateAll()
-        else:
-            merge = merge.whenMatchedUpdateAll(condition=newer)
+        merge = merge.whenMatchedUpdateAll(condition=changed if newer is None else changed & newer)
 
         # UpdateAll/InsertAll silently discard a column the target lacks, so the
         # conf has to be in force for the merge itself.

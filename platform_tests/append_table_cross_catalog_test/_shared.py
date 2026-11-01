@@ -35,6 +35,7 @@ COLUMNS = {
     "SOURCE_SYSTEM",
     "__LAST_MODIFIED_DT",
     "__SOURCE",
+    "__RECORD_HASH",
     "__EXPORT_DATE",
 }
 

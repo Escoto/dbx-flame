@@ -18,6 +18,7 @@ from dbx_flame.pipelines.enrichment import (
     reject_unstamped,
     sanitize_column_names,
     stamp_anchor,
+    stamp_record_hash,
 )
 from dbx_flame.policies.platform import PlatformPolicyViolation
 
@@ -210,6 +211,15 @@ def test_no_patterns_returns_the_input_untouched(spark):
     assert apply_rename_patterns(df, []) is df
 
 
+def test_rename_patterns_never_rename_a_framework_column(spark):
+    """Provenance and the hash carry find these by name; a broad pattern must not move them."""
+    df = spark.createDataFrame([(1, "f", "h")]).toDF("AGENT_ID", "__SOURCE", "__RECORD_HASH")
+
+    result = apply_rename_patterns(df, ["_="])
+
+    assert result.columns == ["AGENTID", "__SOURCE", "__RECORD_HASH"]
+
+
 # --- __ANCHOR_DT ----------------------------------------------------------------
 
 
@@ -281,3 +291,128 @@ def test_an_anchor_column_not_in_the_batch_fails(spark, ctx):
 
     with pytest.raises(PlatformPolicyViolation, match="MODIFIED is not in the batch"):
         stamp_anchor(df, _anchored(ctx))
+
+
+# --- __RECORD_HASH --------------------------------------------------------------
+
+
+def _from(origin, ctx):
+    ctx.config.source.origin = origin
+    return ctx
+
+
+def _hashes(spark, ctx, rows, schema):
+    df = spark.createDataFrame(rows, schema)
+    return [
+        row["__RECORD_HASH"] for row in stamp_record_hash(df, _from(Origin.CSV, ctx)).collect()
+    ]
+
+
+def test_the_hash_is_sha256_hex(spark, ctx):
+    (found,) = _hashes(spark, ctx, [("1", "alice")], "ID string, NAME string")
+
+    assert len(found) == 64 and int(found, 16) >= 0
+
+
+def test_the_same_content_gives_the_same_hash_whatever_the_column_order(spark, ctx):
+    one = _hashes(spark, ctx, [("1", "alice")], "ID string, NAME string")
+    other = _hashes(spark, ctx, [("alice", "1")], "NAME string, ID string")
+
+    assert one == other
+
+
+@pytest.mark.parametrize("changed", [("2", "alice", "x"), ("1", "bob", "x"), ("1", "alice", "y")])
+def test_a_change_in_any_source_column_changes_the_hash(spark, ctx, changed):
+    schema = "ID string, NAME string, NOTE string"
+
+    hashes = _hashes(spark, ctx, [("1", "alice", "x"), changed], schema)
+
+    assert hashes[0] != hashes[1]
+
+
+def test_a_null_and_an_empty_string_hash_differently(spark, ctx):
+    hashes = _hashes(spark, ctx, [("1", None), ("1", "")], "ID string, NOTE string")
+
+    assert hashes[0] != hashes[1]
+
+
+def test_a_value_cannot_shift_into_its_neighbour(spark, ctx):
+    """Without a length prefix both rows would join to the same text, "abc"."""
+    hashes = _hashes(spark, ctx, [("ab", "c"), ("a", "bc")], "A string, B string")
+
+    assert hashes[0] != hashes[1]
+
+
+def test_column_names_are_not_hashed(spark, ctx):
+    one = _hashes(spark, ctx, [("1", "alice")], "A string, B string")
+    other = _hashes(spark, ctx, [("1", "alice")], "X string, Y string")
+
+    assert one == other
+
+
+def test_framework_columns_are_left_out_of_the_hash(spark, ctx):
+    """The same record in two exports carries a new __EXPORT_DATE, not new content."""
+    schema = "ID string, __SOURCE string, __EXPORT_DATE timestamp"
+    rows = [
+        ("1", "FILE:/a_1.csv", datetime(2026, 1, 1)),
+        ("1", "FILE:/a_2.csv", datetime(2026, 1, 2)),
+    ]
+
+    hashes = _hashes(spark, ctx, rows, schema)
+
+    assert hashes[0] == hashes[1]
+
+
+def test_a_widened_integer_keeps_its_hash(spark, ctx):
+    narrow = _hashes(spark, ctx, [(1,)], "ID int")
+    wide = _hashes(spark, ctx, [(1,)], "ID bigint")
+
+    assert narrow == wide
+
+
+def test_a_timestamp_hashes_the_same_in_every_session_time_zone(spark, ctx):
+    zone = "spark.sql.session.timeZone"
+    previous = spark.conf.get(zone)
+    rows, schema = [(datetime(2026, 1, 5, 10, 30),)], "AT timestamp"
+    try:
+        spark.conf.set(zone, "UTC")
+        in_utc = _hashes(spark, ctx, rows, schema)
+        spark.conf.set(zone, "America/New_York")
+        in_new_york = _hashes(spark, ctx, rows, schema)
+    finally:
+        spark.conf.set(zone, previous)
+
+    assert in_utc == in_new_york
+
+
+def test_a_field_added_to_a_struct_changes_the_hash_even_when_null(spark, ctx):
+    """A new schema is a new version of every record, nested fields included."""
+    before = _hashes(spark, ctx, [("1", (1,))], "ID string, S struct<A: int>")
+    after = _hashes(spark, ctx, [("1", (1, None))], "ID string, S struct<A: int, B: int>")
+
+    assert before != after
+
+
+def test_a_table_we_stamped_keeps_the_hash_it_arrived_with(spark, ctx):
+    df = spark.createDataFrame([("1", "upstream")], "ID string, __RECORD_HASH string")
+
+    result = stamp_record_hash(df, _from(Origin.TABLE, ctx))
+
+    assert result.collect()[0]["__RECORD_HASH"] == "upstream"
+
+
+def test_a_table_we_did_not_create_is_hashed_where_it_is_read(spark, ctx):
+    df = spark.createDataFrame([("1",)], "ID string")
+
+    result = stamp_record_hash(df, _from(Origin.TABLE, ctx))
+
+    assert len(result.collect()[0]["__RECORD_HASH"]) == 64
+
+
+def test_a_file_is_always_hashed_here(spark, ctx):
+    """A column of that name in a file is the vendor's, not a hash we stamped."""
+    df = spark.createDataFrame([("1", "forged")], "ID string, __RECORD_HASH string")
+
+    result = stamp_record_hash(df, _from(Origin.CSV, ctx))
+
+    assert result.collect()[0]["__RECORD_HASH"] != "forged"

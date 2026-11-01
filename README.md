@@ -65,8 +65,9 @@ original record is kept. Which combinations each flow accepts:
 - **Quality gates.** A [Databricks DQX](https://databrickslabs.github.io/dqx/) ruleset checks
   each batch before the framework writes it. An `error` rule stops the batch. A `warn` rule
   logs the failure and lets the batch continue. A run never logs an error and reports success.
-- **Row-level provenance.** The framework sets `__SOURCE` and `__EXPORT_DATE` when data
-  enters, and never changes them. Each Silver row traces back to the export it came from.
+- **Row-level provenance.** The framework sets `__SOURCE`, `__EXPORT_DATE` and a
+  `__RECORD_HASH` of the content when data enters, and never changes them. Each Silver row
+  traces back to the export it came from, and a new version opens only when content changed.
 - **An audit trail in your catalog.** Each run that passes Start writes to
   `monitoring_{env}.audit.flame_logs`. Each row names its job, run and task. A run that
   cannot log stops before it touches data. Schema: [00_overview.md](docs/00_overview.md#glossary).
