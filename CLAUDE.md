@@ -52,9 +52,12 @@ MSYS_NO_PATHCONV=1 wsl -d Ubuntu-24.04 -- bash -lc "tr -d '\r' < /mnt/c/<path>/s
 - **All Delta table names are UPPERCASE.** Start validates this.
 - **Every catalog is `{catalog}_{env}`.** `catalog: mdm` with `env: dev` resolves to
   `mdm_dev`. The audit table is `monitoring_{env}.audit.flame_logs`.
-- **Provenance is written once.** The framework sets `__SOURCE` and `__EXPORT_DATE` where
-  data enters it, and never overwrites them on promotion. Every Silver and Gold row therefore
-  traces to its exact origin (ALCOA+). `__EXPORT_DATE` is the only source of truth for time.
+- **Provenance is written once.** The framework sets `__SOURCE`, `__EXPORT_DATE` and
+  `__RECORD_HASH` where data enters it, and never overwrites them on promotion. Every Silver
+  and Gold row therefore traces to its exact origin (ALCOA+). `__EXPORT_DATE` is the only
+  source of truth for time.
+- **A record's hash is calculated once**, where it enters, after that task's rename and cast.
+  Every later task carries it and compares it; none recomputes it.
 - **Classic job clusters only.** Serverless rejects or breaks three things the framework
   does: SCD2 caches a DataFrame, UPSERT sets an autoMerge Spark conf, and `foreachBatch`
   captures the `Context`.
