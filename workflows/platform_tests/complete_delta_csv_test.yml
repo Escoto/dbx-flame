@@ -79,7 +79,7 @@ resources:
       job_clusters:
         - job_cluster_key: &cluster complete_delta_csv_test_cluster
           new_cluster:
-            spark_version: 15.4.x-scala2.12
+            spark_version: 18.x-scala2.13
             node_type_id: m7gd.large
             num_workers: 0
             data_security_mode: SINGLE_USER
