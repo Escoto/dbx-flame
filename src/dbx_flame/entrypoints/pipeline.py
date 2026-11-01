@@ -76,7 +76,7 @@ def _gate_and_write(df: DataFrame, ctx: Context, writer: Writer) -> None:
     writer.write(prepared, ctx)
 
     # After the write, so a column schema evolution just added is in the table.
-    DeltaTableConfig(ctx).apply()
+    DeltaTableConfig(ctx, writer.layout).apply()
 
 
 def run_pipeline(ctx: Context) -> None:

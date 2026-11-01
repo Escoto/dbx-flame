@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from dbx_flame.context.config import IncrementStrategy, Verb
 from dbx_flame.observability.kpi import Kpi
-from dbx_flame.output.base import Requirements
+from dbx_flame.output.base import Layout, Requirements
 from dbx_flame.output.mechanics import (
     StepMode,
     log_rows_written,
@@ -28,6 +28,7 @@ _SOURCE = "AppendWriter"
 
 class AppendWriter:
     verb: ClassVar[Verb] = Verb.APPEND
+    layout: ClassVar[Layout] = Layout.EXPORTS
     requires: ClassVar[Requirements] = Requirements(
         # A full read lands each read of a foreign table in Bronze as one more snapshot;
         # a delta read, as the rows it changed since the last.
@@ -50,7 +51,7 @@ class AppendWriter:
                 stamped.write.format("delta")
                 .mode("append")
                 .option("mergeSchema", merge_schema(ctx))
-                .options(**DeltaTableConfig(ctx).write_options(stamped))
+                .options(**DeltaTableConfig(ctx, self.layout).write_options(stamped))
                 .saveAsTable(ctx.target_table)
             )
             log_rows_written(ctx, event=Kpi.ROWS_APPENDED, source=_SOURCE)

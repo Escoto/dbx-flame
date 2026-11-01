@@ -14,7 +14,7 @@ from pyspark.sql import functions as F
 
 from dbx_flame.context.config import IncrementStrategy, SnapshotScope, Verb
 from dbx_flame.observability.kpi import Kpi
-from dbx_flame.output.base import Requirements
+from dbx_flame.output.base import Layout, Requirements
 from dbx_flame.output.mechanics import (
     CURRENT,
     CURRENT_FLAG,
@@ -53,6 +53,7 @@ _EVENT = Kpi.ROWS_HISTORIZED
 
 class Scd2Writer:
     verb: ClassVar[Verb] = Verb.SCD2
+    layout: ClassVar[Layout] = Layout.KEYS
     requires: ClassVar[Requirements] = Requirements(
         keys=True,
         event_time=True,
@@ -140,7 +141,7 @@ def _create(df: DataFrame, ctx: Context) -> None:
     (
         rows.write.format("delta")
         .mode("append")
-        .options(**DeltaTableConfig(ctx).write_options(rows))
+        .options(**DeltaTableConfig(ctx, Layout.KEYS).write_options(rows))
         .saveAsTable(ctx.target_table)
     )
     log_rows_written(ctx, event=_EVENT, source=_SOURCE)

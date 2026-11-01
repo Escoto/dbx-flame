@@ -809,3 +809,19 @@ def test_promotion_keeps_the_hash_a_record_entered_with(spark, database):
 
     stored = spark.table(f"`{database}`.`TARGET`").collect()[0]
     assert stored["__RECORD_HASH"] == entered
+
+
+def test_scd2_clusters_its_target_and_still_merges_into_it(spark, database):
+    """The pipeline clusters the target after the write that creates it; later merges run on it."""
+    ctx = _ctx(spark, database)
+    target = f"`{database}`.`TARGET`"
+
+    _gate_and_write(_subjects(spark, [("A", "v1", "2026-01-01 00:00:00")]), ctx, Scd2Writer())
+    clustering = spark.sql(f"DESCRIBE DETAIL {target}").collect()[0]["clusteringColumns"]
+    _gate_and_write(_subjects(spark, [("A", "v2", "2026-01-02 00:00:00")]), ctx, Scd2Writer())
+
+    assert list(clustering) == ["ID", "__CURRENT_FLAG"]
+    assert _history(spark, database) == {
+        ("A", "v1", _at(1), _at(2), "N", "N"),
+        ("A", "v2", _at(2), None, "Y", "N"),
+    }

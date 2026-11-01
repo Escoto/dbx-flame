@@ -8,7 +8,7 @@ from delta.tables import DeltaTable
 
 from dbx_flame.context.config import IncrementStrategy, Verb
 from dbx_flame.observability.kpi import Kpi
-from dbx_flame.output.base import Requirements
+from dbx_flame.output.base import Layout, Requirements
 from dbx_flame.output.mechanics import (
     StepMode,
     as_timestamp,
@@ -36,6 +36,7 @@ _EVENT = Kpi.ROWS_UPSERTED
 
 class UpsertWriter:
     verb: ClassVar[Verb] = Verb.UPSERT
+    layout: ClassVar[Layout] = Layout.KEYS
     requires: ClassVar[Requirements] = Requirements(
         keys=True,
         # Re-reading every key each run is safe: newer wins, and an unchanged row is a
@@ -89,7 +90,7 @@ class UpsertWriter:
             df.write.format("delta")
             .mode("append")
             .option("mergeSchema", merge_schema(ctx))
-            .options(**DeltaTableConfig(ctx).write_options(df))
+            .options(**DeltaTableConfig(ctx, self.layout).write_options(df))
             .saveAsTable(ctx.target_table)
         )
         log_rows_written(ctx, event=_EVENT, source=_SOURCE)

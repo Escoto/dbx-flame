@@ -34,7 +34,7 @@ dbx_flame/
 │   │   │   ├── upsert.py            #   UPSERT (SCD1)
 │   │   │   ├── scd2.py              #   SCD2 merge engine (close-and-insert)
 │   │   │   └── complete_delta.py    #   snapshot replay orchestration on top of scd2.py
-│   │   ├── table_config.py          #   DeltaTableConfig: table-level settings (statistics columns, comments, tags)
+│   │   ├── table_config.py          #   DeltaTableConfig: table-level settings (statistics columns, clustering, comments, tags)
 │   │   └── table_metadata.py        #   Unity Catalog comments and tags on the target
 │   ├── observability/
 │   │   ├── audit_logger.py          #   buffered logger → `monitoring_{env}`.audit.flame_logs

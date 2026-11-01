@@ -8,7 +8,7 @@ from pyspark.sql import functions as F
 
 from dbx_flame.context.config import IncrementStrategy, Verb
 from dbx_flame.observability.kpi import Kpi
-from dbx_flame.output.base import Requirements
+from dbx_flame.output.base import Layout, Requirements
 from dbx_flame.output.mechanics import (
     EXPORT_DATE,
     StepMode,
@@ -34,6 +34,7 @@ _SOURCE = "FullWriter"
 
 class FullWriter:
     verb: ClassVar[Verb] = Verb.FULL
+    layout: ClassVar[Layout] = Layout.NONE
     requires: ClassVar[Requirements] = Requirements(
         # A full read is the current dataset by definition: exactly what FULL replaces with.
         # A delta read is not: FULL would replace the table with only the rows that changed.
@@ -79,7 +80,7 @@ class FullWriter:
             stamped.write.format("delta")
             .mode("overwrite")
             .option("mergeSchema", merge_schema(ctx))
-            .options(**DeltaTableConfig(ctx).write_options(stamped))
+            .options(**DeltaTableConfig(ctx, self.layout).write_options(stamped))
             .saveAsTable(ctx.target_table)
         )
         log_rows_written(ctx, event=Kpi.ROWS_OVERWRITTEN, source=_SOURCE)
