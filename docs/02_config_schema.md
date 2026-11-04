@@ -88,7 +88,7 @@ policies.checks_file: /Volumes/.../subjects_checks.yml  # optional; DQX ruleset
 output.verb: scd2                 # enum: append | full | upsert | scd2 | complete_delta (required)
 output.schema_name: silver_main    # str, required
 output.table: SUBJECTS            # str, required, UPPERCASE
-output.keys: "ID"                 # list; required by upsert/scd2/complete_delta
+output.keys: "ID"                 # list; required by upsert/scd2/complete_delta, rejected by append/full
 output.event_time.column: MODIFIEDDATE      # required by scd2/complete_delta
 output.event_time.format: "M/d/yyyy h:mm:ss a"  # optional; only when the column is a string (…_fmt)
 output.snapshot_scope: delta      # enum: delta | full (default delta); complete_delta only
@@ -182,7 +182,7 @@ Verbs are layer-agnostic; the Start layer enforces this matrix (each writer *dec
 
 | | `append` | `full` | `upsert` | `scd2` | `complete_delta` |
 |---|---|---|---|---|---|
-| **any origin** | `output.*` target | `output.*` target | + `output.keys` | + `output.keys`, `output.event_time.column` | — |
+| **any origin** | `output.*` target; no `output.keys` | `output.*` target; no `output.keys` | + `output.keys` | + `output.keys`, `output.event_time.column` | — |
 | **file origins** (csv/json/sas) | typical Inbound→Bronze | supported | supported | supported | not supported (needs a Delta updates table) |
 | **table origin** | supported | supported | supported | typical Bronze→Silver | optional `source.deletes_table` (with `output.deletes.*`) |
 | **deletes feed** | — | — | — | — | optional |

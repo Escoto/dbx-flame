@@ -8,7 +8,9 @@ help:  ## Show this help
 install:  ## Create the venv and install all dependencies
 	poetry install
 
-test:  ## Run the unit tests with coverage
+# Reinstalls the package itself, so its metadata matches the version just built.
+test: clean build  ## Clean, build, then run the unit tests with coverage
+	poetry install --only-root
 	poetry run pytest
 
 qa:  ## Format, lint, and check YAML

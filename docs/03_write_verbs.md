@@ -61,7 +61,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 
 > *Get the latest from a layer and load it into the next.* Typical: Inbound→Bronze. Also valid Bronze→Silver.
 
-- **Requires**: target only.
+- **Requires**: target only. `output.keys` is rejected at Start: APPEND neither merges, deduplicates nor clusters by keys.
 - **Semantics**: write incoming records to the target with Delta `append` (with `mergeSchema` when schema evolution is enabled). No keys, no history columns beyond what the Pipeline added.
 - **Increments**: checkpoint; for a table we didn't create, `full_read` (each read lands as one more snapshot) or `delta_read` (only the rows changed since the last read).
 
@@ -69,7 +69,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 
 > *Snapshot and overwrite.* Typical: reference tables, full-refresh feeds.
 
-- **Requires**: target only.
+- **Requires**: target only. `output.keys` is rejected at Start: FULL replaces the whole table, so it neither merges, deduplicates nor clusters by keys.
 - **Semantics**: Delta `overwrite` of the target with the current dataset (with `mergeSchema`). Empty input → **skip** with an audit log entry. A source that produced nothing is a run with no news, not an instruction to empty the table.
 - **Current dataset = newest export**: a backlog can hand one batch several exports. Only the rows carrying the batch's latest `__EXPORT_DATE` are written; the older exports are superseded, never unioned in.
 - **Newer always wins**: a batch whose export is older than the target's `max(__EXPORT_DATE)` is **skipped** with an audit log entry. Yesterday's snapshot never overwrites today's.
