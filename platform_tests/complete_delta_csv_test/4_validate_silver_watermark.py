@@ -53,4 +53,13 @@ expect_window(version(silver, "C", "v1"), start=EVENT_4, end=None, current="Y")
 
 assert silver.filter(silver["__DELETED_FLAG"] == "Y").count() == 0, "nothing was deleted"
 
+
+# gh #85: each target is clustered by what its verb filters on.
+def clustering(table: str) -> list:
+    return list(spark.sql(f"DESCRIBE DETAIL {qualified(table)}").collect()[0]["clusteringColumns"])
+
+
+assert clustering(BRONZE_TABLE) == ["__EXPORT_DATE"], clustering(BRONZE_TABLE)
+assert clustering(SILVER_TABLE) == ["ID", "__CURRENT_FLAG"], clustering(SILVER_TABLE)
+
 print("silver watermark validated")

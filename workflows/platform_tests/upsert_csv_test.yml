@@ -1,8 +1,8 @@
 # End-to-end platform test: CSV → Bronze (APPEND) → Silver (UPSERT).
 #
 # UPSERT is SCD Type 1: one row per key, no history. The second round is what proves
-# it — the same keys arrive again under new export timestamps and silver refreshes
-# those rows in place, staying at five rows instead of accumulating versions.
+# it — the same records arrive again under new export timestamps, and silver stays at
+# five rows, none of them rewritten, because no record's __RECORD_HASH changed.
 #
 # Both loads are checkpoint-based.
 # Bronze: streams the inbound files through Auto Loader.

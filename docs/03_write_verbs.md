@@ -30,7 +30,20 @@ The hash is stamped where a record enters: a file read, whatever the target laye
 
 `__LAST_MODIFIED_DT` is not provenance: each table has its own, and a write replaces the value a row read from another framework table carried in. A row's `__SOURCE` and `__EXPORT_DATE` lead back to its Bronze row, whose own `__LAST_MODIFIED_DT` is the ingest time. It is metadata only: no verb or increment strategy reads it. A table we didn't create that already has a `__LAST_MODIFIED_DT` column has that value overwritten.
 
-Every table the framework writes also keeps `delta.dataSkippingStatsColumns` (set by `DeltaTableConfig`): Delta's default first 32 leaf columns, plus `__EXPORT_DATE` and `__ANCHOR_DT` wherever they sit, so filters on them can skip files. The property replaces Delta's default rather than adding to it, so it is recomputed after any write that evolves the schema. It also keeps the comments and tags from the task's `table_config`, and a comment on each of the columns above, as Unity Catalog metadata ([04_policies.md](04_policies.md#8-table-comments-and-tags)).
+Every table the framework writes also keeps `delta.dataSkippingStatsColumns` (set by `DeltaTableConfig`): Delta's default first 32 leaf columns, plus `__EXPORT_DATE`, `__ANCHOR_DT` and the clustering columns below wherever they sit, so filters on them can skip files. The property replaces Delta's default rather than adding to it, so it is recomputed after any write that evolves the schema.
+
+`DeltaTableConfig` also keeps each target **liquid-clustered** by the columns its verb's reads and merges filter on:
+
+| Verb | Clustered by | So that |
+|---|---|---|
+| APPEND | `__EXPORT_DATE`, plus `__ANCHOR_DT` when present | a watermark read, or a snapshot cut on `__EXPORT_DATE`, skips the older exports |
+| UPSERT | `output.keys` | a merge reads only the files that can hold the batch's keys |
+| SCD2, COMPLETE_DELTA | `output.keys`, plus `__CURRENT_FLAG` | the same, and the merges, which compare against current rows only, skip closed versions |
+| FULL | nothing; a clustering set by hand is left alone | every write replaces the table with one export |
+
+Clustering takes at most four columns. A task with more keys clusters by the first ones that fit (three plus `__CURRENT_FLAG` on a history table, four on UPSERT) and names the rest in its `table_clustered` audit event. The leading keys still let a merge skip most files. Clustering is set with `ALTER TABLE … CLUSTER BY` after the write that creates the table, and again only when the columns change. Spark 3.5 can't cluster the creating write itself, and Databricks clusters a later write as it lands only when the write is large, so `OPTIMIZE`, run by hand or by predictive optimization, clusters the rest. A checkpoint read streams new commits and filters nothing, so clustering doesn't speed it up.
+
+It also keeps the comments and tags from the task's `table_config`, and a comment on each of the columns above, as Unity Catalog metadata ([04_policies.md](04_policies.md#8-table-comments-and-tags)).
 
 Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audit log; names in `observability/kpi.py`). The names follow the verb, not the layer: a verb can write any layer, and the audit row's catalog, schema and table already say which.
 
@@ -48,7 +61,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 
 > *Get the latest from a layer and load it into the next.* Typical: Inbound→Bronze. Also valid Bronze→Silver.
 
-- **Requires**: target only.
+- **Requires**: target only. `output.keys` is rejected at Start: APPEND neither merges, deduplicates nor clusters by keys.
 - **Semantics**: write incoming records to the target with Delta `append` (with `mergeSchema` when schema evolution is enabled). No keys, no history columns beyond what the Pipeline added.
 - **Increments**: checkpoint; for a table we didn't create, `full_read` (each read lands as one more snapshot) or `delta_read` (only the rows changed since the last read).
 
@@ -56,7 +69,7 @@ Each verb reports the rows it wrote as one KPI event (`source = KPI` in the audi
 
 > *Snapshot and overwrite.* Typical: reference tables, full-refresh feeds.
 
-- **Requires**: target only.
+- **Requires**: target only. `output.keys` is rejected at Start: FULL replaces the whole table, so it neither merges, deduplicates nor clusters by keys.
 - **Semantics**: Delta `overwrite` of the target with the current dataset (with `mergeSchema`). Empty input → **skip** with an audit log entry. A source that produced nothing is a run with no news, not an instruction to empty the table.
 - **Current dataset = newest export**: a backlog can hand one batch several exports. Only the rows carrying the batch's latest `__EXPORT_DATE` are written; the older exports are superseded, never unioned in.
 - **Newer always wins**: a batch whose export is older than the target's `max(__EXPORT_DATE)` is **skipped** with an audit log entry. Yesterday's snapshot never overwrites today's.

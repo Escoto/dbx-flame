@@ -20,6 +20,7 @@ from _shared import (  # noqa: E402
     FULL_UPDATE_HOUR,
     MILESTONES,
     ROWS_PER_SNAPSHOT,
+    BRONZE_TABLE,
     SILVER_COLUMNS,
     SILVER_TABLE,
     SNAPSHOTS,
@@ -80,5 +81,17 @@ assert str(current_value("TST_ST_246", "ENR")["MILESTONEVALUE"]) == "230.00"
 assert str(current_value("TST_ST_782", "ENR")["MILESTONEVALUE"]) == "68.00"
 assert str(current_value("TST_ST_782", "FPI")["MILESTONEDATE"]) == "2026-03-07"
 assert str(current_value("TST_ST_111", "ENR")["MILESTONEVALUE"]) == "120.00"
+
+
+# gh #85: each target is clustered by what its verb filters on.
+def clustering(table: str) -> list:
+    return list(spark.sql(f"DESCRIBE DETAIL {qualified(table)}").collect()[0]["clusteringColumns"])
+
+
+assert clustering(BRONZE_TABLE) == ["__EXPORT_DATE"], clustering(BRONZE_TABLE)
+# Seven keys and four clustering columns: the first three keep their place beside
+# __CURRENT_FLAG, and the rest are named in the table_clustered audit event.
+expected = ["STUDYID", "SUBSTUDYID", "PART", "__CURRENT_FLAG"]
+assert clustering(SILVER_TABLE) == expected, clustering(SILVER_TABLE)
 
 print("silver full-scope replay validated")

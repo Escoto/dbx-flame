@@ -1,12 +1,7 @@
-# Runs every ingest platform test: Source → Bronze → Silver, every verb and reader.
-#
-# The tasks carry no depends_on, so they run in parallel. Safe because each
-# test cleans only its own source directory and metadata.
-
 resources:
   jobs:
-    data_processing_budget_suite:
-      name: data_processing_budget_suite
+    data_processing_quick_suite:
+      name: data_processing_quick_suite
       tasks:
         - task_key: complete_delta_csv_test
           run_job_task:

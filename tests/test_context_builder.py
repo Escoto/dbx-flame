@@ -206,6 +206,18 @@ def test_verb_requires_keys_for_upsert(mock_spark):
         build_context(config, mock_spark, RUN)
 
 
+@pytest.mark.parametrize("verb", [Verb.APPEND, Verb.FULL])
+def test_a_verb_without_keys_refuses_output_keys(verb):
+    """Nothing reads them there, so a user would think they dedup or cluster the target."""
+    config = _make_config(
+        output=OutputConfig(verb=verb, schema_name="gold", table="AGG", keys=["ID"]),
+    )
+
+    errors = validate_requirements(config)
+
+    assert errors == [f"output.verb={verb} does not use output.keys; remove them"]
+
+
 def test_verb_requires_event_time_for_scd2(mock_spark):
     config = _make_config(
         output=OutputConfig(verb=Verb.SCD2, schema_name="silver", table="T", keys=["ID"]),

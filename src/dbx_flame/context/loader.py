@@ -301,6 +301,9 @@ def validate_requirements(config: TaskConfig) -> list[str]:
 
     if reqs.keys and not config.output.keys:
         errors.append(f"output.verb={verb} requires output.keys")
+    elif config.output.keys and not reqs.keys:
+        # Nothing reads them on this verb: no merge, no dedup, no clustering.
+        errors.append(f"output.verb={verb} does not use output.keys; remove them")
 
     dedup = config.output.dedup
     if reqs.event_time and not config.output.event_time:

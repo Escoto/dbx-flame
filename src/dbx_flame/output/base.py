@@ -1,8 +1,9 @@
-"""Writer protocol and verb requirements declaration."""
+"""Writer protocol, verb requirements and table layout declarations."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum, unique
 from typing import TYPE_CHECKING, ClassVar, Protocol, runtime_checkable
 
 from dbx_flame.context.config import IncrementStrategy, Origin, Verb
@@ -11,6 +12,18 @@ if TYPE_CHECKING:
     from pyspark.sql import DataFrame
 
     from dbx_flame.context.context import Context
+
+
+@unique
+class Layout(StrEnum):
+    """What a verb's target is clustered by: the columns its own reads and merges filter on."""
+
+    # Replaced by one export on every write, so there is nothing to skip.
+    NONE = "none"
+    # Read by export: a watermark read, or a snapshot cut on __EXPORT_DATE.
+    EXPORTS = "exports"
+    # Merged on output.keys, and a history table only against its current rows.
+    KEYS = "keys"
 
 
 @dataclass(frozen=True)
@@ -43,5 +56,6 @@ class Writer(Protocol):
 
     verb: ClassVar[Verb]
     requires: ClassVar[Requirements]
+    layout: ClassVar[Layout]
 
     def write(self, df: DataFrame, ctx: Context) -> None: ...

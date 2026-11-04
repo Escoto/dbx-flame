@@ -15,7 +15,7 @@ from pyspark.sql import functions as F
 
 from dbx_flame.context.config import IncrementStrategy, Origin, SnapshotScope, Verb
 from dbx_flame.observability.kpi import Kpi
-from dbx_flame.output.base import Requirements
+from dbx_flame.output.base import Layout, Requirements
 from dbx_flame.output.delta.scd2 import merge_history
 from dbx_flame.output.mechanics import (
     CURRENT,
@@ -49,6 +49,7 @@ _SOURCE = "CompleteDeltaWriter"
 
 class CompleteDeltaWriter:
     verb: ClassVar[Verb] = Verb.COMPLETE_DELTA
+    layout: ClassVar[Layout] = Layout.KEYS
     requires: ClassVar[Requirements] = Requirements(
         keys=True,
         event_time=True,
