@@ -52,7 +52,7 @@ class AuditLogger:
     Schema: __uuid, __workflow_id, __workflow_run_id, __task_key, __task_run_id,
             __flame_version, time_stamp, type, catalog, schema, table, name, source,
             total, description, metadata
-    Partitioned by: type, name
+    Clustered by: catalog, schema, table
     """
 
     _SCHEMA = StructType(
@@ -113,10 +113,12 @@ class AuditLogger:
                 comment_clause = f" COMMENT '{comment}'" if comment else ""
                 cols.append(f"  `{field.name}` {type_name}{nullable}{comment_clause}")
             col_defs = ",\n".join(cols)
+            # Clustered by target, so a query about one table's runs skips every other
+            # table's files.
             ddl = (
                 f"CREATE TABLE {self._audit_table_name} (\n{col_defs}\n)\n"
                 f"USING DELTA\n"
-                f"PARTITIONED BY (`type`, `name`)"
+                f"CLUSTER BY (`catalog`, `schema`, `table`)"
             )
             self._spark.sql(ddl)
 

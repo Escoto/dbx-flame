@@ -17,7 +17,7 @@ The layers are unit-testable *because* they only touch Context + DataFrame:
 | typecast | YAML parsing, ordering/append semantics, missing-column error, date/timestamp formats, pass-through of undeclared columns, silent-NULL detection incl. sample capture |
 | policies | ruleset parsing and DQX validation errors, result aggregation and counts, the batch handed on unchanged, warn-continues / error-raises-after-all |
 | output | every verb against in-memory Delta tables: creation path, anti-filter idempotence (re-run = no-op), close-and-insert chains, `snapshot_scope: full` expiry, deletes double-merge, UPSERT newer-wins, FULL empty-skip, watermark boundaries |
-| observability | audit row schema/partitioning, buffering + flush-on-failure, KPI event names |
+| observability | audit row schema/clustering, buffering + flush-on-failure, KPI event names |
 
 Coverage gate: **≥70%**, enforced by `pytest` itself (`--cov-fail-under`) and run in
 pre-commit/CI.

@@ -181,8 +181,9 @@ def test_parsed_target_table_columns(spark, audit_db):
     assert row["table"] == "SUBJECTS"
 
 
-def test_table_partitioned_by_type_and_name(spark, audit_db):
-    table_name = f"{audit_db}.partitioned_check"
+def test_the_audit_table_is_clustered_by_its_target(spark, audit_db):
+    """A query about one table's runs then skips every other table's files."""
+    table_name = f"{audit_db}.clustered_check"
     AuditLogger(
         spark=spark,
         env="dev_01",
@@ -192,8 +193,8 @@ def test_table_partitioned_by_type_and_name(spark, audit_db):
     )
 
     detail = spark.sql(f"DESCRIBE DETAIL {table_name}").collect()[0]
-    partitions = list(detail["partitionColumns"])
-    assert partitions == ["type", "name"]
+    assert list(detail["clusteringColumns"]) == ["catalog", "schema", "table"]
+    assert list(detail["partitionColumns"]) == []
 
 
 def test_metadata_field(spark, audit_db):
