@@ -33,8 +33,10 @@ from dbx_flame.entrypoints.pipeline import _gate_and_write
 from dbx_flame.output.delta.complete_delta import CompleteDeltaWriter
 from dbx_flame.output.delta.complete_delta import _at as snapshot_rows
 from dbx_flame.output.delta.scd2 import Scd2Writer
+from dbx_flame.observability.audit_logger import AuditLogger
 from dbx_flame.output.delta.upsert import UpsertWriter
 from dbx_flame.pipelines.enrichment import _record_hash
+from dbx_flame.pipelines.table_source import TableSource
 from dbx_flame.policies.base import PolicyViolation
 from dbx_flame.policies.platform import PlatformPolicyViolation
 
@@ -125,7 +127,12 @@ def _at(day: int, hour: int = 0) -> datetime:
 
 def _subjects(spark, rows, source="FILE:/Volumes/in/subjects/subjects.csv"):
     """Subjects as a writer receives them: provenance is stamped where data enters."""
-    return _hashed(spark.createDataFrame(rows, SUBJECTS).withColumn("__SOURCE", F.lit(source)))
+    stamped = (
+        spark.createDataFrame(rows, SUBJECTS)
+        .withColumn("__SOURCE", F.lit(source))
+        .withColumn("__EXPORT_DATE", F.lit(_at(1, 12)))
+    )
+    return _hashed(stamped)
 
 
 def _hashed(df):
@@ -825,3 +832,51 @@ def test_scd2_clusters_its_target_and_still_merges_into_it(spark, database):
         ("A", "v1", _at(1), _at(2), "N", "N"),
         ("A", "v2", _at(2), None, "Y", "N"),
     }
+
+
+def test_a_watermark_rerun_leaves_an_unchanged_export_and_its_deletes_alone(spark, database):
+    """gh #84: snapshot 2 changes no record and leaves no row, so the watermark stays at 1.
+
+    Without its export_processed record the rerun would apply B's delete again, moving
+    __LAST_MODIFIED_DT and logging a second step for a snapshot already applied.
+    """
+    ctx = _complete_delta_ctx(
+        spark,
+        database,
+        deletes_table="DELETIONS",
+        output={
+            "deletes": DeletesConfig(
+                keys=["ID"],
+                event_time=EventTimeConfig(column="DELETEDTIME", format=EVENT_FORMAT),
+            )
+        },
+    )
+    ctx = replace(
+        ctx,
+        logger=AuditLogger(
+            spark=spark,
+            env="dev_01",
+            target_table=ctx.target_table,
+            run=RUN,
+            _audit_table_override=f"`{database}`.`FLAME_LOGS`",
+        ),
+    )
+    _hashed(
+        spark.createDataFrame([("B", "2026-01-02 00:00:00", _file(2), _at(2, 12))], DELETIONS)
+    ).write.format("delta").saveAsTable(f"`{database}`.`DELETIONS`")
+    unchanged = ("A", "v1", "2026-01-01 00:00:00")
+    _snapshot_subjects(
+        spark, [(*unchanged, 1), ("B", "v1", "2026-01-01 00:00:00", 1), (*unchanged, 2)]
+    ).write.format("delta").saveAsTable(f"`{database}`.`SOURCE`")
+
+    def run(write_time):
+        run_ctx = replace(ctx, write_time=write_time)
+        _gate_and_write(TableSource().read(run_ctx), run_ctx, CompleteDeltaWriter())
+
+    run(FIRST_RUN)
+    stamps = _stamps(spark, database)
+    steps = ctx.logger.recorded("step_promoted").count()
+    run(SECOND_RUN)
+
+    assert _stamps(spark, database) == stamps
+    assert ctx.logger.recorded("step_promoted").count() == steps

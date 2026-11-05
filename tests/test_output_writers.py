@@ -81,7 +81,10 @@ def _rows(spark, database):
 
 def _people(spark, rows, schema=PEOPLE, source="FILE:/in/people.csv"):
     """People rows as a writer receives them: provenance is stamped where data enters."""
-    return _hashed(spark.createDataFrame(rows, schema).withColumn("__SOURCE", F.lit(source)))
+    stamped = spark.createDataFrame(rows, schema).withColumn("__SOURCE", F.lit(source))
+    if "__EXPORT_DATE" not in stamped.columns:
+        stamped = stamped.withColumn("__EXPORT_DATE", F.lit(datetime(2026, 1, 1, 12)))
+    return _hashed(stamped)
 
 
 def _hashed(df):

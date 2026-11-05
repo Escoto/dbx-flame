@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, Optional
 
@@ -9,6 +10,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import DateType, TimestampNTZType, TimestampType
 
 from dbx_flame.context.config import IncrementStrategy
+from dbx_flame.mechanics.exports import EXPORT_SKIPPED, newest_promoted
 from dbx_flame.pipelines.enrichment import (
     ANCHOR_DT,
     EXPORT_DATE,
@@ -49,6 +51,32 @@ def _anchor_column(ctx: Context) -> str:
     can reach the scan.
     """
     return ANCHOR_DT if _follows_anchor(ctx) else EXPORT_DATE
+
+
+def _skip_promoted(ctx: Context, table: str, pending: DataFrame) -> DataFrame:
+    """Drop the pending exports the target already took, and log each one skipped.
+
+    Everything up to the newest export the target took was taken in order, as the
+    watermark itself assumes. That also covers an export dedup or a superseding snapshot
+    kept out of the target, which left no record of its own.
+    """
+    candidates = sorted(row[0] for row in pending.select(EXPORT_DATE).distinct().collect())
+    newest = newest_promoted(ctx, candidates)
+    if newest is None:
+        return pending
+
+    for export in candidates:
+        if export <= newest:
+            ctx.logger.info(
+                name=EXPORT_SKIPPED,
+                source=_SOURCE,
+                description=(
+                    f"Skipped export {export} of {table}: {ctx.target_table} already took "
+                    f"the exports up to {newest}"
+                ),
+                metadata=json.dumps({"export_date": export.isoformat()}),
+            )
+    return pending.filter(F.col(EXPORT_DATE) > F.lit(newest))
 
 
 def _is_stamped(ctx: Context, table: str) -> bool:
@@ -200,7 +228,8 @@ class TableSource:
         """
         _require_anchor(ctx, table)
         watermark = self._watermark_for(ctx)
-        return ctx.spark.table(table).filter(F.col(_anchor_column(ctx)) > F.lit(watermark))
+        pending = ctx.spark.table(table).filter(F.col(_anchor_column(ctx)) > F.lit(watermark))
+        return _skip_promoted(ctx, table, pending)
 
     def _watermark_for(self, ctx: Context) -> datetime:
         if self._watermark is None:

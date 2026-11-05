@@ -296,3 +296,91 @@ def test_a_run_that_dies_mid_snapshot_records_only_the_snapshots_it_finished(
         CompleteDeltaWriter().write(_exports(spark, [("A", "v1", 1), ("A", "v2", 2)]), ctx)
 
     assert _steps(ctx) == [("MERGE", "updates", _file(1), 0)]
+
+
+# --- every export a step took, changed or not (gh #84) ------------------------
+
+
+def _processed(ctx) -> list[tuple[str, int, list[str]]]:
+    """The export_processed records as (export, version, sources), in the order logged."""
+    records = [
+        json.loads(call.kwargs["metadata"])
+        for call in ctx.logger.info.call_args_list
+        if call.kwargs["name"] == "export_processed"
+    ]
+    return [(r["export_date"], r["version"], r["sources"]) for r in records]
+
+
+def _stamp(day: int) -> str:
+    return datetime(2026, 1, day, 12).isoformat()
+
+
+def test_every_export_a_step_took_is_recorded_with_the_version_after_it(spark, database):
+    ctx = _ctx(spark, database, Verb.APPEND)
+
+    AppendWriter().write(_exports(spark, [("A", "v1", 1), ("B", "v1", 2)]), ctx)
+
+    assert _processed(ctx) == [(_stamp(1), 0, [_file(1)]), (_stamp(2), 0, [_file(2)])]
+
+
+@pytest.mark.parametrize("verb, writer", [(Verb.UPSERT, UpsertWriter), (Verb.SCD2, Scd2Writer)])
+def test_an_export_that_changed_nothing_is_recorded_without_a_step(spark, database, verb, writer):
+    """It left no row behind, so only this record tells a watermark read it was taken."""
+    ctx = _ctx(spark, database, verb, **KEYED)
+    batch = [("A", "v1", 1)]
+    writer().write(_exports(spark, batch), ctx)
+
+    writer().write(_exports(spark, batch), ctx)
+
+    after = _version(spark, database)
+    assert _steps(ctx) == [("MERGE", "updates", _file(1), 0)]
+    assert _processed(ctx) == [(_stamp(1), 0, [_file(1)]), (_stamp(1), after, [_file(1)])]
+
+
+def test_a_snapshot_is_recorded_once_for_its_updates_and_deletes(spark, database):
+    ctx = _ctx(spark, database, Verb.COMPLETE_DELTA, deletes_table="DELETIONS", **KEYED, **DELETES)
+    _deletions(spark, database, [("B", 2)])
+
+    CompleteDeltaWriter().write(
+        _exports(spark, [("A", "v1", 1), ("B", "v1", 1), ("A", "v2", 2)]), ctx
+    )
+
+    after = _version(spark, database)
+    assert _processed(ctx) == [
+        (_stamp(1), 0, [_file(1)]),
+        (_stamp(2), after, [_file(2, "deletions"), _file(2)]),
+    ]
+
+
+def test_an_export_is_recorded_against_the_target_table_id(spark, database):
+    """A dropped and recreated target gets a new id, and so starts with no records."""
+    ctx = _ctx(spark, database, Verb.APPEND)
+
+    AppendWriter().write(_exports(spark, [("A", "v1", 1)]), ctx)
+
+    detail = spark.sql(f"DESCRIBE DETAIL `{database}`.`TARGET`").collect()[0]
+    (logged,) = [
+        json.loads(call.kwargs["metadata"])
+        for call in ctx.logger.info.call_args_list
+        if call.kwargs["name"] == "export_processed"
+    ]
+    assert logged["table_id"] == detail["id"]
+
+
+def test_a_snapshot_that_died_mid_step_is_not_recorded(spark, database, monkeypatch):
+    """Its next run then takes it again (gh #12)."""
+    ctx = _ctx(spark, database, Verb.COMPLETE_DELTA, deletes_table="DELETIONS", **KEYED, **DELETES)
+    _deletions(spark, database, [("A", 2)])
+    applied = complete_delta._apply_deletes
+
+    def dies_on_snapshot_2(df, ctx):
+        if df.isEmpty():
+            return applied(df, ctx)
+        raise RuntimeError("driver lost")
+
+    monkeypatch.setattr(complete_delta, "_apply_deletes", dies_on_snapshot_2)
+
+    with pytest.raises(RuntimeError, match="driver lost"):
+        CompleteDeltaWriter().write(_exports(spark, [("A", "v1", 1), ("A", "v2", 2)]), ctx)
+
+    assert _processed(ctx) == [(_stamp(1), 0, [_file(1)])]

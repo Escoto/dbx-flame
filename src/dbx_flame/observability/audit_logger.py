@@ -7,6 +7,7 @@ from datetime import datetime
 from importlib.metadata import version
 from typing import TYPE_CHECKING
 
+from pyspark.sql import functions as F
 from pyspark.sql.types import (
     IntegerType,
     StringType,
@@ -16,7 +17,7 @@ from pyspark.sql.types import (
 )
 
 if TYPE_CHECKING:
-    from pyspark.sql import SparkSession
+    from pyspark.sql import DataFrame, SparkSession
 
     from dbx_flame.context.context import RunIdentity
     from dbx_flame.observability.kpi import Kpi
@@ -197,6 +198,19 @@ class AuditLogger:
             description=description,
             total=total,
             metadata=None,
+        )
+
+    def recorded(self, name: str) -> DataFrame:
+        """This target's flushed records of one event, for a run that acts on its own trail.
+
+        Filtered on the clustering columns, so the read skips every other table's files.
+        """
+        records = self._spark.table(self._audit_table_name)
+        return records.filter(
+            F.col("catalog").eqNullSafe(self._catalog)
+            & F.col("schema").eqNullSafe(self._schema)
+            & F.col("table").eqNullSafe(self._table)
+            & (F.col("name") == name)
         )
 
     def flush(self) -> None:
