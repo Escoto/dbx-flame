@@ -13,6 +13,7 @@ from pyspark.sql import Window
 from pyspark.sql import functions as F
 
 from dbx_flame.context.config import EventTimeConfig, SchemaEvolution
+from dbx_flame.mechanics.exports import exports_in, log_processed
 from dbx_flame.pipelines.enrichment import RECORD_HASH, SOURCE
 from dbx_flame.policies.platform import PlatformPolicy, violate
 
@@ -360,20 +361,24 @@ def record_step(
     writer: str,
     deletes: DataFrame | None = None,
 ) -> None:
-    """Log one step_promoted record per source the step applied, then flush.
+    """Log the exports the step took, and one step_promoted record per source it applied.
 
     A step is every commit since `before`, and the records carry the version after
-    them. A step that changed no rows is not a step: a skipped write or a rerun with
-    nothing new leaves no record. The flush is immediate, so a driver that dies later
-    cannot lose a step that committed. Deletes are always merged.
+    them. Every export gets an export_processed record, so a watermark read skips it
+    next time even when it changed nothing. A step that changed no rows is not a step,
+    though: a skipped write or a rerun with nothing new leaves no step_promoted record.
+    The flush is immediate, so a driver that dies later cannot lose a step that
+    committed. Deletes are always merged.
     """
     after = table_version(ctx.spark, ctx.target_table)
-    if after is None or not _rows_changed(ctx, before, after):
+    if after is None:
         return
 
-    _log_sources(ctx, rows, mode, Feed.UPDATES, writer, after)
-    if deletes is not None:
-        _log_sources(ctx, deletes, StepMode.MERGE, Feed.DELETES, writer, after)
+    log_processed(ctx, writer, after, exports_in(rows, deletes))
+    if _rows_changed(ctx, before, after):
+        _log_sources(ctx, rows, mode, Feed.UPDATES, writer, after)
+        if deletes is not None:
+            _log_sources(ctx, deletes, StepMode.MERGE, Feed.DELETES, writer, after)
     ctx.logger.flush()
 
 

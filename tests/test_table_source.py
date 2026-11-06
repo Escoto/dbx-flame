@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
+from dataclasses import replace
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -19,6 +21,9 @@ from dbx_flame.context.config import (
     Verb,
 )
 from dbx_flame.context.context import Context, RunIdentity
+from dbx_flame.mechanics.exports import log_processed
+from dbx_flame.observability.audit_logger import AuditLogger
+from dbx_flame.output.mechanics import table_version
 from dbx_flame.pipelines.table_source import DEFAULT_WATERMARK, TableSource
 from dbx_flame.policies.platform import PlatformPolicyViolation
 
@@ -591,3 +596,118 @@ def test_the_deletes_table_is_held_to_the_same_rule(spark, database):
 
     with pytest.raises(PlatformPolicyViolation, match="`DELETES` carries none"):
         TableSource().read_deletes(ctx)
+
+
+# --- a watermark read skips the exports the target already took (gh #84) -----
+
+
+def _audited(ctx, database):
+    """A real audit trail, so a read sees the records earlier runs flushed."""
+    logger = AuditLogger(
+        spark=ctx.spark,
+        env="dev_01",
+        target_table=ctx.target_table,
+        run=RUN,
+        _audit_table_override=f"`{database}`.`FLAME_LOGS`",
+    )
+    return replace(ctx, logger=logger)
+
+
+def _took(ctx, *exports):
+    """Record that the target took these exports at its current version, as a step does."""
+    version = table_version(ctx.spark, ctx.target_table)
+    log_processed(ctx, "test", version, {export: [_FILE] for export in exports})
+    ctx.logger.flush()
+
+
+def _append(spark, database, table, rows):
+    spark.createDataFrame(_with_source(rows), SCHEMA).write.format("delta").mode(
+        "append"
+    ).saveAsTable(f"`{database}`.`{table}`")
+
+
+JAN = [datetime(2024, 1, day) for day in range(1, 5)]
+
+
+def test_a_watermark_read_skips_an_export_the_target_already_took(spark, database):
+    """Export 2 changed nothing, so the target's own watermark is still at export 1."""
+    _write(spark, database, "SUBJECTS", [("1", JAN[0])])
+    _write(spark, database, "UPDATES", [("2", JAN[1]), ("3", JAN[2])])
+    ctx = _audited(_context(spark, database, IncrementStrategy.WATERMARK), database)
+    _took(ctx, JAN[1])
+
+    assert _ids(TableSource().read(ctx)) == ["3"]
+
+
+def test_every_export_up_to_the_newest_taken_is_skipped(spark, database):
+    """Dedup or a superseding snapshot can keep an export out of the target unrecorded."""
+    _write(spark, database, "SUBJECTS", [("1", JAN[0])])
+    _write(spark, database, "UPDATES", [("2", JAN[1]), ("3", JAN[2]), ("4", JAN[3])])
+    ctx = _audited(_context(spark, database, IncrementStrategy.WATERMARK), database)
+    _took(ctx, JAN[2])
+
+    assert _ids(TableSource().read(ctx)) == ["4"]
+
+
+def test_the_deletes_feed_skips_the_exports_the_target_took(spark, database):
+    _write(spark, database, "SUBJECTS", [("1", JAN[0])])
+    _write(spark, database, "UPDATES", [])
+    _write(spark, database, "DELETES", [("2", JAN[1]), ("3", JAN[2])])
+    ctx = _audited(
+        _context(spark, database, IncrementStrategy.WATERMARK, deletes="DELETES"), database
+    )
+    _took(ctx, JAN[1])
+
+    assert _ids(TableSource().read_deletes(ctx)) == ["3"]
+
+
+def test_each_export_skipped_is_logged(spark, database):
+    _write(spark, database, "SUBJECTS", [("1", JAN[0])])
+    _write(spark, database, "UPDATES", [("2", JAN[1]), ("3", JAN[2])])
+    ctx = _audited(_context(spark, database, IncrementStrategy.WATERMARK), database)
+    _took(ctx, JAN[1])
+
+    TableSource().read(ctx)
+    ctx.logger.flush()
+
+    skipped = ctx.logger.recorded("export_skipped").collect()
+    assert [json.loads(row["metadata"])["export_date"] for row in skipped] == [JAN[1].isoformat()]
+
+
+def test_a_recreated_target_takes_its_exports_again(spark, database):
+    """The records name the dropped table's id, not the new one's."""
+    _write(spark, database, "SUBJECTS", [("1", JAN[0])])
+    _write(spark, database, "UPDATES", [("2", JAN[1])])
+    ctx = _audited(_context(spark, database, IncrementStrategy.WATERMARK), database)
+    _took(ctx, JAN[1])
+
+    spark.sql(f"DROP TABLE `{database}`.`SUBJECTS`")
+    _write(spark, database, "SUBJECTS", [("1", JAN[0])])
+
+    assert _ids(TableSource().read(ctx)) == ["2"]
+
+
+def test_a_restore_undoes_the_records_of_the_steps_it_rolled_back(spark, database):
+    """Restoring to version 0 rolls back the step at version 1, so export 2 is taken again."""
+    _write(spark, database, "SUBJECTS", [("1", JAN[0])])
+    _append(spark, database, "SUBJECTS", [("1", JAN[0])])
+    _write(spark, database, "UPDATES", [("2", JAN[1])])
+    ctx = _audited(_context(spark, database, IncrementStrategy.WATERMARK), database)
+    _took(ctx, JAN[1])
+
+    spark.sql(f"RESTORE TABLE `{database}`.`SUBJECTS` TO VERSION AS OF 0")
+
+    assert _ids(TableSource().read(ctx)) == ["2"]
+
+
+def test_a_record_the_restore_kept_still_counts(spark, database):
+    """Export 2 was taken at version 0, which the restore went back to."""
+    _write(spark, database, "SUBJECTS", [("1", JAN[0])])
+    _write(spark, database, "UPDATES", [("2", JAN[1])])
+    ctx = _audited(_context(spark, database, IncrementStrategy.WATERMARK), database)
+    _took(ctx, JAN[1])
+    _append(spark, database, "SUBJECTS", [("1", JAN[0])])
+
+    spark.sql(f"RESTORE TABLE `{database}`.`SUBJECTS` TO VERSION AS OF 0")
+
+    assert _ids(TableSource().read(ctx)) == []
